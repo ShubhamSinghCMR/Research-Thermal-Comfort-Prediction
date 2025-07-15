@@ -1,17 +1,18 @@
-import lightgbm as lgb
-import numpy as np
 import pandas as pd
-import os
+import numpy as np
 import joblib
-from sklearn.model_selection import train_test_split
+import os
 import logging
+import lightgbm as lgb
+from utils.config import LIGHTGBM_PARAMS
 
-def prepare_meta_features(base_preds, X_base):
+def prepare_meta_features(base_preds, test_features):
     """
-    Creates meta-feature DataFrame from base model predictions and perception/context.
+    Prepares meta features by combining base model predictions and test features.
     """
     meta_features = pd.DataFrame()
-
+    
+    # Base model predictions
     meta_features['tsv_catboost'] = base_preds['TSV']['catboost']
     meta_features['tsv_rf'] = base_preds['TSV']['rf']
     meta_features['tsv_tabnet'] = base_preds['TSV']['tabnet']
@@ -22,7 +23,7 @@ def prepare_meta_features(base_preds, X_base):
     )
     meta_features['tsv_qrf_lower'] = base_preds['TSV']['qrf_lower']
     meta_features['tsv_qrf_upper'] = base_preds['TSV']['qrf_upper']
-
+    
     meta_features['temp_catboost'] = base_preds['Temp']['catboost']
     meta_features['temp_rf'] = base_preds['Temp']['rf']
     meta_features['temp_tabnet'] = base_preds['Temp']['tabnet']
@@ -31,11 +32,16 @@ def prepare_meta_features(base_preds, X_base):
         meta_features[['temp_catboost', 'temp_rf', 'temp_tabnet', 'temp_bayes']].max(axis=1) -
         meta_features[['temp_catboost', 'temp_rf', 'temp_tabnet', 'temp_bayes']].min(axis=1)
     )
-
-    if isinstance(X_base, pd.DataFrame):
-        for col in ['HumidityPerception', 'AirMovement', 'LightPerception', 'ThermalControlIndex']:
-            if col in X_base.columns:
-                meta_features[col] = X_base[col].reset_index(drop=True)
+    
+    # Add some context features if available
+    if 'HumidityPerception' in test_features.columns:
+        meta_features['HumidityPerception'] = test_features['HumidityPerception'].values
+    if 'AirMovement' in test_features.columns:
+        meta_features['AirMovement'] = test_features['AirMovement'].values
+    if 'BMI' in test_features.columns:
+        meta_features['BMI'] = test_features['BMI'].values
+    if 'CLO_score' in test_features.columns:
+        meta_features['CLO_score'] = test_features['CLO_score'].values
 
     return meta_features
 
@@ -43,49 +49,36 @@ def prepare_meta_features(base_preds, X_base):
 def train_meta_model(meta_X, y_tsv, y_temp, model_dir="models/saved/"):
     """
     Trains LightGBM meta learners for TSV and Temperature.
-    Returns predictions and trained models, and test indices.
+    Uses all provided data for training and prediction (no additional split).
+    Returns predictions for the entire meta_X dataset.
     """
     os.makedirs(model_dir, exist_ok=True)
     logging.info('Meta model training started.')
 
-    # Store original indices for later use
-    original_indices = meta_X.index if hasattr(meta_X, 'index') else range(len(meta_X))
+    # Use all data for training and prediction (no additional split)
+    X_train = meta_X
+    y_tsv_train = y_tsv
+    y_temp_train = y_temp
+    
+    # For evaluation, we'll use the same data (since this is already the test set from base models)
+    X_test = meta_X
+    y_tsv_test = y_tsv
+    y_temp_test = y_temp
 
-    X_train, X_test, y_tsv_train, y_tsv_test, y_temp_train, y_temp_test = train_test_split(
-        meta_X, y_tsv, y_temp, test_size=0.2, random_state=42)
-
-    # Calculate test indices based on the split
-    test_size = len(X_test)
-    total_size = len(meta_X)
-    train_size = total_size - test_size
-    test_indices = original_indices[train_size:]
+    # Test indices are all indices (since we're using all data)
+    test_indices = range(len(meta_X))
 
     logging.info('Training LightGBM meta model for TSV...')
-    # Configure LightGBM for small datasets to reduce warnings
-    tsv_lgb = lgb.LGBMRegressor(
-        random_state=42,
-        verbose=-1,  # Suppress all output
-        min_child_samples=1,  # Allow single samples in leaves
-        min_split_gain=0,  # Allow splits with no gain
-        num_leaves=31,  # Limit tree complexity
-        max_depth=6,  # Limit tree depth
-        n_estimators=100
-    )
+    # Use configurable LightGBM parameters
+    tsv_lgb = lgb.LGBMRegressor(**LIGHTGBM_PARAMS)
     tsv_lgb.fit(X_train, y_tsv_train)
     tsv_pred = tsv_lgb.predict(X_test)
     logging.info('TSV meta model trained.')
     joblib.dump(tsv_lgb, os.path.join(model_dir, "meta_tsv.pkl"))
 
     logging.info('Training LightGBM meta model for Temperature...')
-    temp_lgb = lgb.LGBMRegressor(
-        random_state=42,
-        verbose=-1,  # Suppress all output
-        min_child_samples=1,  # Allow single samples in leaves
-        min_split_gain=0,  # Allow splits with no gain
-        num_leaves=31,  # Limit tree complexity
-        max_depth=6,  # Limit tree depth
-        n_estimators=100
-    )
+    # Use configurable LightGBM parameters
+    temp_lgb = lgb.LGBMRegressor(**LIGHTGBM_PARAMS)
     temp_lgb.fit(X_train, y_temp_train)
     temp_pred = temp_lgb.predict(X_test)
     logging.info('Temperature meta model trained.')

@@ -10,13 +10,13 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import BayesianRidge
 from sklearn.model_selection import train_test_split
 from catboost import CatBoostRegressor
+from utils.config import (SEED, TEST_SIZE_PERCENT, CATBOOST_PARAMS, 
+                         RANDOM_FOREST_PARAMS, BAYESIAN_RIDGE_PARAMS, QUANTILE_RF_PARAMS)
 try:
     from pytorch_tabnet.tab_model import TabNetRegressor
 except ImportError:
     print("Warning: pytorch-tabnet not available. TabNet will be skipped.")
     TabNetRegressor = None
-
-SEED = 42
 
 def train_base_models(X, y_tsv, y_temp, model_dir="models/saved/"):
     os.makedirs(model_dir, exist_ok=True)
@@ -27,8 +27,10 @@ def train_base_models(X, y_tsv, y_temp, model_dir="models/saved/"):
     y_tsv_array = y_tsv.values if hasattr(y_tsv, 'values') else np.array(y_tsv)
     y_temp_array = y_temp.values if hasattr(y_temp, 'values') else np.array(y_temp)
 
+    # Use configurable test size from config
+    test_size = TEST_SIZE_PERCENT / 100.0  # Convert percentage to decimal
     X_train, X_test, y_tsv_train, y_tsv_test, y_temp_train, y_temp_test = train_test_split(
-        X, y_tsv, y_temp, test_size=0.2, random_state=SEED)  # Use DataFrame for X to preserve indices
+        X, y_tsv, y_temp, test_size=test_size, random_state=SEED)  # Use DataFrame for X to preserve indices
 
     # For model training, use numpy arrays
     X_train_array = X_train.values if hasattr(X_train, 'values') else np.array(X_train)
@@ -42,17 +44,9 @@ def train_base_models(X, y_tsv, y_temp, model_dir="models/saved/"):
     }
 
     logging.info('Training CatBoost models...')
-    # Prevent CatBoost from creating log files and folders
-    cat_tsv = CatBoostRegressor(
-        random_seed=SEED, 
-        allow_writing_files=False,
-        verbose=False
-    )
-    cat_temp = CatBoostRegressor(
-        random_seed=SEED, 
-        allow_writing_files=False,
-        verbose=False
-    )
+    # Use configurable CatBoost parameters
+    cat_tsv = CatBoostRegressor(**CATBOOST_PARAMS)
+    cat_temp = CatBoostRegressor(**CATBOOST_PARAMS)
     cat_tsv.fit(X_train_array, y_tsv_train_array)
     cat_temp.fit(X_train_array, y_temp_train_array)
     logging.info('CatBoost models trained.')
@@ -72,8 +66,9 @@ def train_base_models(X, y_tsv, y_temp, model_dir="models/saved/"):
     joblib.dump(cat_temp, f"{model_dir}/catboost_temp.pkl")
 
     logging.info('Training Random Forest models...')
-    rf_tsv = RandomForestRegressor(random_state=SEED)
-    rf_temp = RandomForestRegressor(random_state=SEED)
+    # Use configurable Random Forest parameters
+    rf_tsv = RandomForestRegressor(**RANDOM_FOREST_PARAMS)
+    rf_temp = RandomForestRegressor(**RANDOM_FOREST_PARAMS)
     rf_tsv.fit(X_train_array, y_tsv_train_array)
     rf_temp.fit(X_train_array, y_temp_train_array)
     logging.info('Random Forest models trained.')
@@ -85,8 +80,9 @@ def train_base_models(X, y_tsv, y_temp, model_dir="models/saved/"):
     joblib.dump(rf_temp, f"{model_dir}/rf_temp.pkl")
 
     logging.info('Training Bayesian Ridge models...')
-    br_tsv = BayesianRidge()
-    br_temp = BayesianRidge()
+    # Use configurable Bayesian Ridge parameters
+    br_tsv = BayesianRidge(**BAYESIAN_RIDGE_PARAMS)
+    br_temp = BayesianRidge(**BAYESIAN_RIDGE_PARAMS)
     br_tsv.fit(X_train_array, y_tsv_train_array)
     br_temp.fit(X_train_array, y_temp_train_array)
     logging.info('Bayesian Ridge models trained.')
@@ -105,7 +101,8 @@ def train_base_models(X, y_tsv, y_temp, model_dir="models/saved/"):
     logging.info('Fallback TabNet model trained.')
 
     logging.info('Training Quantile Random Forest for uncertainty...')
-    qrf = RandomForestRegressor(n_estimators=100, random_state=SEED)
+    # Use configurable Quantile RF parameters  
+    qrf = RandomForestRegressor(**QUANTILE_RF_PARAMS)
     qrf.fit(X_train_array, y_tsv_train_array)
 
     all_preds = np.array([tree.predict(X_test_array) for tree in qrf.estimators_])

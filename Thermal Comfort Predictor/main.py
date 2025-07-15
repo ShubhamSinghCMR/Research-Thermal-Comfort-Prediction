@@ -11,8 +11,9 @@ from models.base_models import train_base_models
 from models.meta_model import prepare_meta_features, train_meta_model
 from models.rule_correction import apply_rule_correction_batch
 from utils.metrics import regression_metrics, classification_metrics, tsv_uncertainty_coverage
-from utils.config import MODEL_DIR, SEED, TSV_COMFORT_RANGE
+from utils.config import MODEL_DIR, SEED, TSV_COMFORT_RANGE, TRAIN_SIZE_PERCENT, TEST_SIZE_PERCENT
 from utils.thermal_comfort import estimate_temperature_from_features, comfort_range_to_temperature
+from utils.visualizations import generate_all_visualizations
 
 def main():
     logging.info('Pipeline started.')
@@ -24,6 +25,9 @@ def main():
     df = engineer_features(df_raw.copy())
     df = df.dropna(subset=['TSV'])
     logging.info('Data loaded and features engineered.')
+
+    # Log the train/test split configuration
+    logging.info(f'Using train/test split: {TRAIN_SIZE_PERCENT}%/{TEST_SIZE_PERCENT}%')
 
     # Prepare features and targets
     feature_cols = df.columns.difference(['TSV'])
@@ -56,11 +60,11 @@ def main():
     test_meta_df = pd.DataFrame({
         'TSV_meta': np.array(meta_outputs["TSV_meta"]),
         'Temp_meta': np.array(meta_outputs["Temp_meta"]),
-        'y_tsv_true': np.array(meta_outputs["y_tsv_true"].reset_index(drop=True)),
-        'y_temp_true': np.array(meta_outputs["y_temp_true"].reset_index(drop=True))
+        'y_tsv_true': np.array(meta_outputs["y_tsv_true"]),
+        'y_temp_true': np.array(meta_outputs["y_temp_true"])
     })
-    test_meta_df['tsv_qrf_lower'] = base_preds["TSV"]["qrf_lower"][-len(test_meta_df):]
-    test_meta_df['tsv_qrf_upper'] = base_preds["TSV"]["qrf_upper"][-len(test_meta_df):]
+    test_meta_df['tsv_qrf_lower'] = base_preds["TSV"]["qrf_lower"]
+    test_meta_df['tsv_qrf_upper'] = base_preds["TSV"]["qrf_upper"]
     meta_df.update(test_meta_df)
     test_meta_df = apply_rule_correction_batch(test_meta_df, tsv_col='TSV_meta')
     meta_df.update(test_meta_df[['TSV_final']])
@@ -69,10 +73,8 @@ def main():
     # Convert TSV predictions to temperature estimates
     logging.info('Converting TSV predictions to temperature estimates...')
     test_features = X.loc[X_test_base.index].reset_index(drop=True)
-    # Align test_features to meta_outputs['test_indices']
-    meta_test_indices = meta_outputs["test_indices"]
-    test_features_aligned = test_features.iloc[meta_test_indices].reset_index(drop=True)
-    temp_estimates = estimate_temperature_from_features(test_features_aligned, test_meta_df['TSV_final'].values)
+    # No need to align with meta_outputs['test_indices'] since we use all base test data
+    temp_estimates = estimate_temperature_from_features(test_features, test_meta_df['TSV_final'].values)
     test_meta_df['Temp_estimated'] = temp_estimates
     
     # Evaluate performance (only on rows with meta predictions)
@@ -116,6 +118,11 @@ def main():
     coverage = tsv_uncertainty_coverage(eval_df_clean['y_tsv_true'], eval_df_clean['tsv_qrf_lower'], eval_df_clean['tsv_qrf_upper'])
     logging.info('Evaluation completed.')
 
+    # Generate visualizations
+    logging.info('Generating performance visualizations...')
+    graph_files = generate_all_visualizations(eval_df_clean, "output/")
+    logging.info('Visualizations completed.')
+
     # Print results
     logging.info(f"TSV Regression: {tsv_scores}")
     logging.info(f"Comfort Classification: {class_scores}")
@@ -157,17 +164,14 @@ def main():
     df_full['Predicted TSV Value'] = ''
     df_full['Predicted comfort'] = ''
     df_full['Predicted Temperature (degrees Celsius)'] = ''
-    # Map predictions to the correct rows (meta_outputs['test_indices'] are relative to test_features, which is X_test_base, which is a subset of df)
+    # Map predictions to the correct rows
     # X_test_base.index gives the indices in df of the base model test set
-    # meta_outputs['test_indices'] gives the indices in X_test_base of the meta model test set
+    # Now we use ALL base test indices since meta model uses all of them
     base_test_indices = X_test_base.index
-    meta_test_indices = meta_outputs['test_indices']
-    # The final test set indices in the original df
-    final_test_indices = base_test_indices[meta_test_indices]
     # Fill in predictions for these rows
-    df_full.loc[final_test_indices, 'Predicted TSV Value'] = test_meta_df['TSV_final'].values
-    df_full.loc[final_test_indices, 'Predicted comfort'] = test_meta_df['OutputTSV'].values
-    df_full.loc[final_test_indices, 'Predicted Temperature (degrees Celsius)'] = test_meta_df['Temp_estimated'].round(1).values
+    df_full.loc[base_test_indices, 'Predicted TSV Value'] = test_meta_df['TSV_final'].values
+    df_full.loc[base_test_indices, 'Predicted comfort'] = test_meta_df['OutputTSV'].values
+    df_full.loc[base_test_indices, 'Predicted Temperature (degrees Celsius)'] = test_meta_df['Temp_estimated'].round(1).values
     # Save
     df_full.to_csv('output/complete_dataset_with_predictions.csv', index=False)
     logging.info('Complete dataset with predictions saved to output/complete_dataset_with_predictions.csv')
