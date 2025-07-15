@@ -1,0 +1,17 @@
+Feature,TSV_Importance,Temp_Importance
+tsv_catboost,727,593
+tsv_rf,318,344
+tsv_tabnet,0,0
+tsv_bayes,342,327
+tsv_spread,477,500
+tsv_qrf_lower,75,99
+tsv_qrf_upper,174,172
+temp_catboost,267,281
+temp_rf,186,311
+temp_tabnet,0,0
+temp_bayes,186,148
+temp_spread,133,158
+HumidityPerception,0,0
+AirMovement,0,0
+LightPerception,0,0
+ThermalControlIndex,0,0
