@@ -93,12 +93,42 @@ def train_base_models(X, y_tsv, y_temp, model_dir="models/saved/"):
     joblib.dump(br_tsv, f"{model_dir}/bayes_tsv.pkl")
     joblib.dump(br_temp, f"{model_dir}/bayes_temp.pkl")
 
-    logging.info('Training fallback TabNet (Random Forest) model...')
-    rf_fallback = RandomForestRegressor(random_state=SEED)
-    rf_fallback.fit(X_train_array, y_tsv_train_array)
-    predictions["TSV"]["tabnet"] = rf_fallback.predict(X_test_array)
-    predictions["Temp"]["tabnet"] = rf_fallback.predict(X_test_array)
-    logging.info('Fallback TabNet model trained.')
+    # logging.info('Training fallback TabNet (Random Forest) model...')
+    # rf_fallback = RandomForestRegressor(random_state=SEED)
+    # rf_fallback.fit(X_train_array, y_tsv_train_array)
+    # predictions["TSV"]["tabnet"] = rf_fallback.predict(X_test_array)
+    # predictions["Temp"]["tabnet"] = rf_fallback.predict(X_test_array)
+    # logging.info('Fallback TabNet model trained.')
+
+    if TabNetRegressor:
+        logging.info('Training TabNet models...')
+        
+        tabnet_params = {
+            "seed": SEED,
+            "verbose": 0
+        }
+
+        tabnet_tsv = TabNetRegressor(**tabnet_params)
+        tabnet_temp = TabNetRegressor(**tabnet_params)
+
+        tabnet_tsv.fit(X_train_array, y_tsv_train_array.reshape(-1, 1),
+                    eval_set=[(X_test_array, y_tsv_test.values.reshape(-1, 1))],
+                    max_epochs=200, patience=20, batch_size=256)
+
+        tabnet_temp.fit(X_train_array, y_temp_train_array.reshape(-1, 1),
+                        eval_set=[(X_test_array, y_temp_test.values.reshape(-1, 1))],
+                        max_epochs=200, patience=20, batch_size=256)
+
+        predictions["TSV"]["tabnet"] = tabnet_tsv.predict(X_test_array).flatten()
+        predictions["Temp"]["tabnet"] = tabnet_temp.predict(X_test_array).flatten()
+
+        joblib.dump(tabnet_tsv, f"{model_dir}/tabnet_tsv.pkl")
+        joblib.dump(tabnet_temp, f"{model_dir}/tabnet_temp.pkl")
+
+        logging.info('TabNet models trained and saved.')
+    else:
+        logging.warning("TabNet not available. Skipping TabNet model.")
+
 
     logging.info('Training Quantile Random Forest for uncertainty...')
     # Use configurable Quantile RF parameters  
