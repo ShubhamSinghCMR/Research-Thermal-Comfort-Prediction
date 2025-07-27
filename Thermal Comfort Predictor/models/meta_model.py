@@ -1,103 +1,62 @@
+import lightgbm as lgb
 import pandas as pd
 import numpy as np
-import joblib
-import os
-import logging
-import lightgbm as lgb
-from utils.config import LIGHTGBM_PARAMS
+from sklearn.model_selection import KFold
+from models.base_models import evaluate_predictions
+from utils.config import SHOW_WARNINGS
 
-def prepare_meta_features(base_preds, test_features):
-    """
-    Prepares meta features by combining base model predictions and test features.
-    """
-    meta_features = pd.DataFrame()
+def train_meta_model_kfold(oof_preds, y, env_params, n_splits=5):
+    lgb_params = env_params["lightgbm"].copy()
     
-    # Base model predictions
-    meta_features['tsv_catboost'] = base_preds['TSV']['catboost']
-    meta_features['tsv_rf'] = base_preds['TSV']['rf']
-    meta_features['tsv_tabnet'] = base_preds['TSV']['tabnet']
-    meta_features['tsv_bayes'] = base_preds['TSV']['bayes']
-    meta_features['tsv_spread'] = (
-        meta_features[['tsv_catboost', 'tsv_rf', 'tsv_tabnet', 'tsv_bayes']].max(axis=1) -
-        meta_features[['tsv_catboost', 'tsv_rf', 'tsv_tabnet', 'tsv_bayes']].min(axis=1)
-    )
-    meta_features['tsv_qrf_lower'] = base_preds['TSV']['qrf_lower']
-    meta_features['tsv_qrf_upper'] = base_preds['TSV']['qrf_upper']
-    
-    meta_features['temp_catboost'] = base_preds['Temp']['catboost']
-    meta_features['temp_rf'] = base_preds['Temp']['rf']
-    meta_features['temp_tabnet'] = base_preds['Temp']['tabnet']
-    meta_features['temp_bayes'] = base_preds['Temp']['bayes']
-    meta_features['temp_spread'] = (
-        meta_features[['temp_catboost', 'temp_rf', 'temp_tabnet', 'temp_bayes']].max(axis=1) -
-        meta_features[['temp_catboost', 'temp_rf', 'temp_tabnet', 'temp_bayes']].min(axis=1)
-    )
-    
-    # Add some context features if available
-    if 'HumidityPerception' in test_features.columns:
-        meta_features['HumidityPerception'] = test_features['HumidityPerception'].values
-    if 'AirMovement' in test_features.columns:
-        meta_features['AirMovement'] = test_features['AirMovement'].values
-    if 'BMI' in test_features.columns:
-        meta_features['BMI'] = test_features['BMI'].values
-    if 'CLO_score' in test_features.columns:
-        meta_features['CLO_score'] = test_features['CLO_score'].values
+    # Ensure verbose parameter is set correctly
+    if not SHOW_WARNINGS:
+        lgb_params["verbose"] = -1
+        lgb_params["min_gain_to_split"] = 0
 
-    return meta_features
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+    meta_model = lgb.LGBMRegressor(**lgb_params)
 
+    oof_meta_preds = np.zeros(len(oof_preds))
+    fold_metrics = []
+    feature_importances = []
 
-def train_meta_model(meta_X, y_tsv, y_temp, model_dir="models/saved/"):
-    """
-    Trains LightGBM meta learners for TSV and Temperature.
-    Uses all provided data for training and prediction (no additional split).
-    Returns predictions for the entire meta_X dataset.
-    """
-    os.makedirs(model_dir, exist_ok=True)
-    logging.info('Meta model training started.')
+    for fold, (train_idx, valid_idx) in enumerate(kf.split(oof_preds, y), 1):
+        X_train, X_valid = oof_preds.iloc[train_idx], oof_preds.iloc[valid_idx]
+        y_train, y_valid = y.iloc[train_idx], y.iloc[valid_idx]
 
-    # Use all data for training and prediction (no additional split)
-    X_train = meta_X
-    y_tsv_train = y_tsv
-    y_temp_train = y_temp
-    
-    # For evaluation, we'll use the same data (since this is already the test set from base models)
-    X_test = meta_X
-    y_tsv_test = y_tsv
-    y_temp_test = y_temp
+        callbacks = [lgb.early_stopping(50)]
+        if SHOW_WARNINGS:
+            callbacks.append(lgb.log_evaluation())
 
-    # Test indices are all indices (since we're using all data)
-    test_indices = range(len(meta_X))
+        meta_model.fit(
+            X_train,
+            y_train,
+            eval_set=[(X_valid, y_valid)],
+            callbacks=callbacks
+        )
 
-    logging.info('Training LightGBM meta model for TSV...')
-    # Use configurable LightGBM parameters
-    tsv_lgb = lgb.LGBMRegressor(**LIGHTGBM_PARAMS)
-    tsv_lgb.fit(X_train, y_tsv_train)
-    tsv_pred = tsv_lgb.predict(X_test)
-    logging.info('TSV meta model trained.')
-    joblib.dump(tsv_lgb, os.path.join(model_dir, "meta_tsv.pkl"))
+        y_pred = meta_model.predict(X_valid)
+        oof_meta_preds[valid_idx] = y_pred
+        metrics = evaluate_predictions(y_valid, y_pred)
+        fold_metrics.append(metrics)
 
-    logging.info('Training LightGBM meta model for Temperature...')
-    # Use configurable LightGBM parameters
-    temp_lgb = lgb.LGBMRegressor(**LIGHTGBM_PARAMS)
-    temp_lgb.fit(X_train, y_temp_train)
-    temp_pred = temp_lgb.predict(X_test)
-    logging.info('Temperature meta model trained.')
-    joblib.dump(temp_lgb, os.path.join(model_dir, "meta_temp.pkl"))
+        feature_importances.append(meta_model.feature_importances_)
 
-    importance_df = pd.DataFrame({
-        'Feature': meta_X.columns,
-        'TSV_Importance': tsv_lgb.feature_importances_,
-        'Temp_Importance': temp_lgb.feature_importances_
-    })
-    importance_df.to_csv(os.path.join(model_dir, "meta_feature_importance.csv"), index=False)
-    logging.info('Meta model training completed.')
+        if SHOW_WARNINGS:
+            print(f"[Meta-model Fold {fold}] RMSE={metrics['RMSE']:.3f}, MAE={metrics['MAE']:.3f}, R2={metrics['R2']:.3f}")
+
+    avg_metrics = {m: np.mean([f[m] for f in fold_metrics]) for m in fold_metrics[0]}
+    feature_importance_df = pd.DataFrame({
+        "feature": oof_preds.columns,
+        "importance": np.mean(feature_importances, axis=0),
+    }).sort_values("importance", ascending=False)
+
+    if SHOW_WARNINGS:
+        print(f"\n[Meta-model] Final CV Metrics: RMSE={avg_metrics['RMSE']:.3f}, MAE={avg_metrics['MAE']:.3f}, R2={avg_metrics['R2']:.3f}")
 
     return {
-        "TSV_meta": tsv_pred,
-        "Temp_meta": temp_pred,
-        "y_tsv_true": y_tsv_test,
-        "y_temp_true": y_temp_test,
-        "tsv_model": tsv_lgb,
-        "temp_model": temp_lgb,
-        "test_indices": test_indices
+        "oof_predictions": oof_meta_preds,
+        "cv_metrics": avg_metrics,
+        "feature_importance": feature_importance_df,
+        "model": meta_model,
     }

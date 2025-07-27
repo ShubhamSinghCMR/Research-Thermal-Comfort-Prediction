@@ -1,163 +1,126 @@
+"""
+Improved feature engineering module for Thermal Comfort Prediction.
+- Uses only specified input features for each environment
+- Adds smarter missing value handling
+- Adds outlier capping
+- Uses RobustScaler for stable scaling
+"""
+
 import pandas as pd
 import numpy as np
+from sklearn.preprocessing import RobustScaler
 
-def compute_bmi(weight, height):
-    try:
-        return weight / (height ** 2)
-    except:
-        return np.nan
+def clean_numeric_string(x):
+    """Clean numeric strings and handle missing indicators."""
+    if isinstance(x, str):
+        x = x.strip().replace(' ', '')
+        if x in ['', 'nan', 'NA', 'N/A']:
+            return np.nan
+    return x
 
-def collapse_perception(df, group, mapping):
-    # Returns mapped value from binary one-hot perception columns
-    def map_row(row):
-        for col in group:
-            if row.get(col, 0) == 1:
-                return mapping.get(col.strip().lower(), 0)
-        return 0
-    return df.apply(map_row, axis=1)
+def cap_outliers(X, factor=1.5):
+    """
+    Cap outliers using IQR method for numeric columns.
+    """
+    X_capped = X.copy()
+    numeric_cols = X_capped.select_dtypes(include=[np.number]).columns
 
-def extract_perception_features(df):
-    humidity_cols = [
-        "Very Dry", "Moderately Dry", "Slightly dry", "Neutral",
-        "Slightly Humid", "Moderately Humid", "Very Humid"
-    ]
-    air_cols = [
-        "Very still", "Moderately still", "slightly still", "Acceptable",
-        "Slightly Moving", "Moderately Moving", "Much Moving"
-    ]
-    light_cols = [
-        "Very Bright", "Bright", "Slightly Bright", "Neither Bright nor Neither Dim",
-        "Slightly Dim", "Dim", "Very Dim"
-    ]
-
-    humidity_map = {
-        "very dry": -3, "moderately dry": -2, "slightly dry": -1,
-        "neutral": 0, "slightly humid": 1, "moderately humid": 2, "very humid": 3
-    }
-    air_map = {
-        "very still": -2, "moderately still": -1, "slightly still": 0,
-        "acceptable": 0, "slightly moving": 1, "moderately moving": 2, "much moving": 3
-    }
-    brightness_map = {
-        "very dim": -3, "dim": -2, "slightly dim": -1,
-        "neither bright nor neither dim": 0,
-        "slightly bright": 1, "bright": 2, "very bright": 3
-    }
-
-    df['HumidityPerception'] = collapse_perception(df, humidity_cols, humidity_map)
-    df['AirMovement'] = collapse_perception(df, air_cols, air_map)
-    df['LightPerception'] = collapse_perception(df, light_cols, brightness_map)
-
-    return df
-
-def calculate_clo_score(df, clothing_columns):
-    clo_values = {
-        'T-Shirt': 0.2,
-        'Short sleeves shirt (Poly/cotton)': 0.25,
-        'Long sleeves shirt (Poly/cotton)': 0.3,
-        'Jacket/wwoolen jacket': 0.4,
-        'Pullover/Sweater/upcoller': 0.3,
-        'Thermal tops': 0.4,
-        'Suit': 0.6,
-        'Tights': 0.2,
-        'Pyjamas': 0.3,
-        'Lower (thermal inner)': 0.3,
-        'Dhoti': 0.2,
-        'Jeans': 0.35,
-        'Trousers/long skirt (Poly/cotton)': 0.35,
-        'Shorts/short skirt (Poly/cotton)': 0.2
-    }
-
-    # Convert clothing columns to numeric, handling any string values
-    for col in clothing_columns:
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-
-    df['CLO_score'] = df[clothing_columns].apply(
-        lambda row: sum(row[col] * clo_values.get(col.strip(), 0) for col in clothing_columns),
-        axis=1
-    )
-
-    return df
-
-def calculate_met(df):
-    MET_map = {
-        'Sleeping hrs': 0.9,
-        'Sitting (passive work) hrs': 1.0,
-        'Sitting (Active work) hrs': 1.3,
-        'Standing (relaxed )hrs': 1.5,
-        'Standing (working)': 1.8,
-        'Walking Indoors (hrs)': 2.0,
-        'Walking (Outdoor) hrs': 2.5,
-        'Others hrs': 1.2
-    }
-
-    # Convert MET columns to numeric, handling any string values
-    met_columns = [col for col in MET_map.keys() if col in df.columns]
-    for col in met_columns:
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-
-    df['MET_score'] = df[met_columns].apply(
-        lambda row: sum(row[k] * MET_map[k] for k in met_columns),
-        axis=1
-    )
-
-    return df
-
-def derive_tsv(df):
-    vote_map = {
-        'Cold': -2,
-        'Cool': -1,
-        'Slightly cool': -0.5,
-        'Neutral': 0,
-        'Slightly Warm': 0.5,
-        'Warm': 1,
-        'Hot': 2
-    }
-
-    def get_tsv(row):
-        for col, score in vote_map.items():
-            if str(row.get(col, 0)).strip() == '1':
-                return score
-        return np.nan
-
-    df['TSV'] = df.apply(get_tsv, axis=1)
-    return df
-
-def engineer_features(df):
-    df = df.copy()
-    df.fillna(0, inplace=True)
-
-    # Convert weight and height to numeric
-    df['weight'] = pd.to_numeric(df['weight'], errors='coerce')
-    df['Height'] = pd.to_numeric(df['Height'], errors='coerce')
-    df['BMI'] = df.apply(lambda x: compute_bmi(x['weight'], x['Height']), axis=1)
-    df = extract_perception_features(df)
-
-    clothing_cols = [
-        'T-Shirt', 'Short sleeves shirt (Poly/cotton)', 'Long sleeves shirt (Poly/cotton)',
-        'Jacket/wwoolen jacket', 'Pullover/Sweater/upcoller', 'Thermal tops', 'Suit', 'Tights',
-        'Pyjamas', 'Lower (thermal inner)', 'Dhoti', 'Jeans',
-        'Trousers/long skirt (Poly/cotton)', 'Shorts/short skirt (Poly/cotton)'
-    ]
-    clothing_cols = [col for col in clothing_cols if col in df.columns]
-    df = calculate_clo_score(df, clothing_cols)
-
-    df = calculate_met(df)
-
-    control_cols = [
-        'Fan      O/C-        3',
-        'Evaporative cooler O/C -                4         ',
-        'Air conditioner       O/C -                5        ',
-        'Window O/C -                1         ',
-        'Door      O/C-        2'
-    ]
-    control_cols = [col for col in control_cols if col in df.columns]
+    for col in numeric_cols:
+        Q1 = X_capped[col].quantile(0.25)
+        Q3 = X_capped[col].quantile(0.75)
+        IQR = Q3 - Q1
+        lower = Q1 - factor * IQR
+        upper = Q3 + factor * IQR
+        X_capped[col] = np.clip(X_capped[col], lower, upper)
     
-    # Convert control columns to numeric, handling any string values
-    for col in control_cols:
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-    
-    df['ThermalControlIndex'] = df[control_cols].sum(axis=1)
+    return X_capped
 
-    df = derive_tsv(df)
-    return df
+def handle_missing_values(X):
+    """
+    Handle missing values:
+    - Numeric: median imputation
+    - Categorical: mode imputation
+    """
+    for col in X.columns:
+        if X[col].dtype in [np.float64, np.int64]:
+            X[col] = X[col].fillna(X[col].median())
+        else:
+            X[col] = X[col].fillna(X[col].mode()[0])
+    return X
+
+def scale_features(X):
+    """
+    Scale numeric columns using RobustScaler.
+    Encode categorical columns (Clothing, Activity) as category codes.
+    """
+    X_scaled = X.copy()
+    categorical_cols = ['Clothing', 'Activity']
+    numeric_cols = [col for col in X_scaled.columns if col not in categorical_cols]
+
+    scaler = RobustScaler()
+    X_scaled[numeric_cols] = scaler.fit_transform(X_scaled[numeric_cols])
+
+    for col in categorical_cols:
+        if col in X_scaled.columns:
+            X_scaled[col] = X_scaled[col].astype('category').cat.codes
+
+    return X_scaled
+
+def load_and_preprocess_data(sheet_name):
+    """
+    Load and preprocess data for a specific environment.
+    Returns:
+        X_scaled: scaled/encoded features used for model
+        y: target values
+        X_original: original unscaled features for reporting
+    """
+    df = pd.read_excel('dataset/input_dataset.xlsx', sheet_name=sheet_name)
+    df.columns = [col.strip() for col in df.columns]
+
+    # Required columns
+    if sheet_name == 'Classroom':
+        required_columns = ['RATemp', 'MRT', 'Top', 'Air Velo', 'RH']
+    else:
+        required_columns = ['RATemp', 'MRT', 'Top', 'Air Velo', 'RH', 'Clothing', 'Activity']
+
+    # Build feature dataframe
+    X = pd.DataFrame()
+    for col in required_columns:
+        if col not in df.columns:
+            raise ValueError(f"Required column {col} not found in {sheet_name}")
+        X[col] = df[col]
+
+    # Clean and convert numeric values
+    for col in X.columns:
+        X[col] = X[col].apply(clean_numeric_string)
+        X[col] = pd.to_numeric(X[col], errors='ignore')
+
+    # Save original copy before scaling
+    X_original = X.copy()
+
+    # Handle missing values
+    X = handle_missing_values(X)
+
+    # Cap outliers
+    X = cap_outliers(X)
+
+    # Scale features
+    X_scaled = scale_features(X)
+
+    # Target
+    target_col = 'Given Final TSV'
+    if target_col not in df.columns:
+        raise ValueError(f"Target {target_col} not found in {sheet_name}")
+    y = pd.to_numeric(df[target_col].apply(clean_numeric_string), errors='coerce')
+
+    valid_mask = ~y.isna()
+    X_scaled = X_scaled[valid_mask]
+    y = y[valid_mask]
+    X_original = X_original[valid_mask]
+
+    return X_scaled, y, X_original
+
+def get_all_sheet_names():
+    """Return all environment sheet names."""
+    excel_file = pd.ExcelFile('dataset/input_dataset.xlsx')
+    return excel_file.sheet_names

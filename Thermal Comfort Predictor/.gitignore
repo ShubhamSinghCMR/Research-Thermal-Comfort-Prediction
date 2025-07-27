@@ -1,13 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
 # Virtual Environment
 venv/
+ENV/
 
-# Python cache
-__pycache__/
-*.pyc
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
 
-# Project output
+# Project specific
+catboost_info/
 output/
+models/saved/*.pkl
 *.log
-
-# CatBoost temporary files
-catboost_info/ 
+~$*
+.DS_Store 

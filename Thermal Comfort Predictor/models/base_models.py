@@ -1,149 +1,160 @@
-import pandas as pd
-import numpy as np
-import os
-import joblib
-import torch
+"""
+Base model implementations for the Thermal Comfort Prediction System.
+Uses K-Fold cross-validation and tuned hyperparameters for robust training.
+Tracks train vs validation accuracy for overfitting detection.
+"""
+
 import logging
-import shutil
+import warnings
+import numpy as np
+import pandas as pd
 
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import BayesianRidge
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold
+from sklearn.ensemble import ExtraTreesRegressor
+from sklearn.linear_model import ElasticNet
 from catboost import CatBoostRegressor
-from utils.config import (SEED, TEST_SIZE_PERCENT, CATBOOST_PARAMS, 
-                         RANDOM_FOREST_PARAMS, BAYESIAN_RIDGE_PARAMS, QUANTILE_RF_PARAMS)
-try:
-    from pytorch_tabnet.tab_model import TabNetRegressor
-except ImportError:
-    print("Warning: pytorch-tabnet not available. TabNet will be skipped.")
-    TabNetRegressor = None
+from xgboost import XGBRegressor
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from utils.metrics import calculate_accuracy
+from utils.config import SHOW_WARNINGS
 
-def train_base_models(X, y_tsv, y_temp, model_dir="models/saved/"):
-    os.makedirs(model_dir, exist_ok=True)
-    logging.info('Base model training started.')
+# Configure warnings
+if not SHOW_WARNINGS:
+    warnings.filterwarnings('ignore')
+    logging.getLogger().setLevel(logging.ERROR)
 
-    # Convert to numpy arrays to avoid feature names warnings for model training
-    X_array = X.values if hasattr(X, 'values') else np.array(X)
-    y_tsv_array = y_tsv.values if hasattr(y_tsv, 'values') else np.array(y_tsv)
-    y_temp_array = y_temp.values if hasattr(y_temp, 'values') else np.array(y_temp)
 
-    # Use configurable test size from config
-    test_size = TEST_SIZE_PERCENT / 100.0  # Convert percentage to decimal
-    X_train, X_test, y_tsv_train, y_tsv_test, y_temp_train, y_temp_test = train_test_split(
-        X, y_tsv, y_temp, test_size=test_size, random_state=SEED)  # Use DataFrame for X to preserve indices
+def print_status(message, status=""):
+    """Print formatted status updates."""
+    if status == "started":
+        print(f"\n[🔄 Started] {message}")
+    elif status == "completed":
+        print(f"[✅ Completed] {message}")
+    else:
+        print(f"[ℹ️] {message}")
 
-    # For model training, use numpy arrays
-    X_train_array = X_train.values if hasattr(X_train, 'values') else np.array(X_train)
-    X_test_array = X_test.values if hasattr(X_test, 'values') else np.array(X_test)
-    y_tsv_train_array = y_tsv_train.values if hasattr(y_tsv_train, 'values') else np.array(y_tsv_train)
-    y_temp_train_array = y_temp_train.values if hasattr(y_temp_train, 'values') else np.array(y_temp_train)
 
-    predictions = {
-        "TSV": {},
-        "Temp": {}
+def evaluate_predictions(y_true, y_pred):
+    """Evaluate predictions with multiple metrics."""
+    mse = mean_squared_error(y_true, y_pred)
+    rmse = np.sqrt(mse)
+    mae = mean_absolute_error(y_true, y_pred)
+    r2 = r2_score(y_true, y_pred)
+    accuracy = calculate_accuracy(y_true, y_pred)
+    residual_std = np.std(y_true - y_pred)
+
+    return {
+        "RMSE": rmse,
+        "MAE": mae,
+        "R2": r2,
+        "Accuracy": accuracy,
+        "Residual_STD": residual_std,
     }
 
-    logging.info('Training CatBoost models...')
-    # Use configurable CatBoost parameters
-    cat_tsv = CatBoostRegressor(**CATBOOST_PARAMS)
-    cat_temp = CatBoostRegressor(**CATBOOST_PARAMS)
-    cat_tsv.fit(X_train_array, y_tsv_train_array)
-    cat_temp.fit(X_train_array, y_temp_train_array)
-    logging.info('CatBoost models trained.')
 
-    # Clean up catboost_info folder if it was created
-    if os.path.exists('catboost_info'):
-        try:
-            shutil.rmtree('catboost_info')
-            logging.info('Cleaned up catboost_info folder.')
-        except Exception as e:
-            logging.warning(f'Could not remove catboost_info folder: {e}')
-
-    predictions["TSV"]["catboost"] = cat_tsv.predict(X_test_array)
-    predictions["Temp"]["catboost"] = cat_temp.predict(X_test_array)
-
-    joblib.dump(cat_tsv, f"{model_dir}/catboost_tsv.pkl")
-    joblib.dump(cat_temp, f"{model_dir}/catboost_temp.pkl")
-
-    logging.info('Training Random Forest models...')
-    # Use configurable Random Forest parameters
-    rf_tsv = RandomForestRegressor(**RANDOM_FOREST_PARAMS)
-    rf_temp = RandomForestRegressor(**RANDOM_FOREST_PARAMS)
-    rf_tsv.fit(X_train_array, y_tsv_train_array)
-    rf_temp.fit(X_train_array, y_temp_train_array)
-    logging.info('Random Forest models trained.')
-
-    predictions["TSV"]["rf"] = rf_tsv.predict(X_test_array)
-    predictions["Temp"]["rf"] = rf_temp.predict(X_test_array)
-
-    joblib.dump(rf_tsv, f"{model_dir}/rf_tsv.pkl")
-    joblib.dump(rf_temp, f"{model_dir}/rf_temp.pkl")
-
-    logging.info('Training Bayesian Ridge models...')
-    # Use configurable Bayesian Ridge parameters
-    br_tsv = BayesianRidge(**BAYESIAN_RIDGE_PARAMS)
-    br_temp = BayesianRidge(**BAYESIAN_RIDGE_PARAMS)
-    br_tsv.fit(X_train_array, y_tsv_train_array)
-    br_temp.fit(X_train_array, y_temp_train_array)
-    logging.info('Bayesian Ridge models trained.')
-
-    predictions["TSV"]["bayes"] = br_tsv.predict(X_test_array)
-    predictions["Temp"]["bayes"] = br_temp.predict(X_test_array)
-
-    joblib.dump(br_tsv, f"{model_dir}/bayes_tsv.pkl")
-    joblib.dump(br_temp, f"{model_dir}/bayes_temp.pkl")
-
-    # logging.info('Training fallback TabNet (Random Forest) model...')
-    # rf_fallback = RandomForestRegressor(random_state=SEED)
-    # rf_fallback.fit(X_train_array, y_tsv_train_array)
-    # predictions["TSV"]["tabnet"] = rf_fallback.predict(X_test_array)
-    # predictions["Temp"]["tabnet"] = rf_fallback.predict(X_test_array)
-    # logging.info('Fallback TabNet model trained.')
-
-    if TabNetRegressor:
-        logging.info('Training TabNet models...')
-        
-        tabnet_params = {
-            "seed": SEED,
-            "verbose": 0
-        }
-
-        tabnet_tsv = TabNetRegressor(**tabnet_params)
-        tabnet_temp = TabNetRegressor(**tabnet_params)
-
-        tabnet_tsv.fit(X_train_array, y_tsv_train_array.reshape(-1, 1),
-                    eval_set=[(X_test_array, y_tsv_test.values.reshape(-1, 1))],
-                    max_epochs=200, patience=20, batch_size=256)
-
-        tabnet_temp.fit(X_train_array, y_temp_train_array.reshape(-1, 1),
-                        eval_set=[(X_test_array, y_temp_test.values.reshape(-1, 1))],
-                        max_epochs=200, patience=20, batch_size=256)
-
-        predictions["TSV"]["tabnet"] = tabnet_tsv.predict(X_test_array).flatten()
-        predictions["Temp"]["tabnet"] = tabnet_temp.predict(X_test_array).flatten()
-
-        joblib.dump(tabnet_tsv, f"{model_dir}/tabnet_tsv.pkl")
-        joblib.dump(tabnet_temp, f"{model_dir}/tabnet_temp.pkl")
-
-        logging.info('TabNet models trained and saved.')
-    else:
-        logging.warning("TabNet not available. Skipping TabNet model.")
+def get_base_models():
+    """Return all base models with tuned hyperparameters."""
+    return {
+        "catboost": CatBoostRegressor(
+            depth=7,
+            iterations=1000,
+            learning_rate=0.05,
+            l2_leaf_reg=5,
+            random_seed=42,
+            early_stopping_rounds=50,
+            verbose=False,
+        ),
+        "extratrees": ExtraTreesRegressor(
+            n_estimators=500,
+            max_depth=18,
+            min_samples_split=5,
+            min_samples_leaf=3,
+            random_state=42,
+            n_jobs=-1,
+        ),
+        "elasticnet": ElasticNet(
+            alpha=0.3,
+            l1_ratio=0.5,
+            max_iter=5000,
+            random_state=42,
+        ),
+        "xgboost": XGBRegressor(
+            n_estimators=700,
+            max_depth=6,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            reg_lambda=1,
+            random_state=42,
+            early_stopping_rounds=50,
+            verbosity=0,
+        ),
+    }
 
 
-    logging.info('Training Quantile Random Forest for uncertainty...')
-    # Use configurable Quantile RF parameters  
-    qrf = RandomForestRegressor(**QUANTILE_RF_PARAMS)
-    qrf.fit(X_train_array, y_tsv_train_array)
+def train_base_models(X, y, n_splits=5):
+    """
+    Train base models using K-Fold CV and return out-of-fold predictions.
 
-    all_preds = np.array([tree.predict(X_test_array) for tree in qrf.estimators_])
-    lower = np.percentile(all_preds, 5, axis=0)
-    upper = np.percentile(all_preds, 95, axis=0)
+    Returns:
+        oof_preds (DataFrame): OOF predictions for meta model training
+        model_results (dict): Performance metrics per model (avg across folds)
+    """
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+    base_models = get_base_models()
 
-    predictions["TSV"]["qrf_lower"] = lower
-    predictions["TSV"]["qrf_upper"] = upper
-    logging.info('Quantile Random Forest trained.')
+    # Storage
+    oof_preds = pd.DataFrame(np.zeros((len(X), len(base_models))), columns=base_models.keys())
+    model_results = {}
 
-    joblib.dump(qrf, f"{model_dir}/qrf_tsv.pkl")
+    for idx, (name, model) in enumerate(base_models.items(), 1):
+        if SHOW_WARNINGS:
+            print_status(f"Training base model [{idx}/{len(base_models)}] - {name}", "started")
 
-    logging.info('Base model training completed.')
-    return predictions, X_test, y_tsv_test, y_temp_test
+        fold_metrics = []
+        for fold, (train_idx, valid_idx) in enumerate(kf.split(X, y), 1):
+            X_train, X_valid = X.iloc[train_idx], X.iloc[valid_idx]
+            y_train, y_valid = y.iloc[train_idx], y.iloc[valid_idx]
+
+            # Train with early stopping for boosting models
+            if name == "catboost":
+                model.fit(X_train, y_train, eval_set=(X_valid, y_valid))
+            elif name == "xgboost":
+                model.fit(
+                    X_train, y_train,
+                    eval_set=[(X_valid, y_valid)],
+                    verbose=False
+                )
+            else:
+                model.fit(X_train, y_train)
+
+            # Train & validation predictions
+            y_train_pred = model.predict(X_train)
+            y_valid_pred = model.predict(X_valid)
+
+            # Metrics for train and validation
+            train_score = evaluate_predictions(y_train, y_train_pred)
+            valid_score = evaluate_predictions(y_valid, y_valid_pred)
+
+            # Add train accuracy to validation metrics for gap analysis
+            valid_score["Train_Accuracy"] = train_score["Accuracy"]
+
+            # Store out-of-fold predictions
+            oof_preds.loc[valid_idx, name] = y_valid_pred
+
+            # Append fold metrics
+            fold_metrics.append(valid_score)
+
+        # Average metrics across folds
+        avg_metrics = {m: np.mean([f[m] for f in fold_metrics]) for m in fold_metrics[0]}
+        model_results[name] = avg_metrics
+
+        if SHOW_WARNINGS:
+            print_status(
+                f"Completed {name}: "
+                f"RMSE={avg_metrics['RMSE']:.3f}, MAE={avg_metrics['MAE']:.3f}, "
+                f"R2={avg_metrics['R2']:.3f}, Accuracy={avg_metrics['Accuracy']:.2%}",
+                "completed",
+            )
+
+    return oof_preds, model_results
