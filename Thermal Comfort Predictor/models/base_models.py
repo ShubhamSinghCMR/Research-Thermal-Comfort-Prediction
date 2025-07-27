@@ -1,7 +1,31 @@
 """
-Base model implementations for the Thermal Comfort Prediction System.
-Uses K-Fold cross-validation and tuned hyperparameters for robust training.
-Tracks train vs validation accuracy for overfitting detection.
+Base Models Module for Thermal Comfort Prediction
+==============================================
+
+This module implements the base models for the thermal comfort prediction system.
+It uses a diverse set of regression models with K-Fold cross-validation for robust training.
+
+Key Features:
+------------
+- Multiple base models: CatBoost, ExtraTrees, ElasticNet, XGBoost
+- K-Fold cross-validation for reliable performance estimation
+- Out-of-fold predictions for meta-model training
+- Overfitting detection through train vs validation accuracy tracking
+- Comprehensive evaluation metrics
+
+Dependencies:
+------------
+- scikit-learn: Model training and evaluation
+- catboost: Gradient boosting implementation
+- xgboost: Gradient boosting implementation
+- numpy: Numerical operations
+- pandas: Data manipulation
+
+Main Functions:
+-------------
+- train_base_models: Main entry point for training all base models
+- get_base_models: Get configured base model instances
+- evaluate_predictions: Calculate multiple performance metrics
 """
 
 import logging
@@ -25,7 +49,23 @@ if not SHOW_WARNINGS:
 
 
 def print_status(message, status=""):
-    """Print formatted status updates."""
+    """
+    Print formatted status updates with emoji indicators.
+    
+    Parameters
+    ----------
+    message : str
+        Status message to display
+    status : str, optional
+        Status type ('started', 'completed', or '')
+        
+    Notes
+    -----
+    Status Types:
+    - started: 🔄
+    - completed: ✅
+    - default: ℹ️
+    """
     if status == "started":
         print(f"\n[🔄 Started] {message}")
     elif status == "completed":
@@ -35,7 +75,26 @@ def print_status(message, status=""):
 
 
 def evaluate_predictions(y_true, y_pred):
-    """Evaluate predictions with multiple metrics."""
+    """
+    Evaluate predictions using multiple performance metrics.
+    
+    Parameters
+    ----------
+    y_true : array-like
+        True target values
+    y_pred : array-like
+        Predicted target values
+        
+    Returns
+    -------
+    dict
+        Dictionary containing multiple metrics:
+        - RMSE: Root Mean Squared Error
+        - MAE: Mean Absolute Error
+        - R2: R-squared score
+        - Accuracy: Custom accuracy within tolerance
+        - Residual_STD: Standard deviation of residuals
+    """
     mse = mean_squared_error(y_true, y_pred)
     rmse = np.sqrt(mse)
     mae = mean_absolute_error(y_true, y_pred)
@@ -53,7 +112,26 @@ def evaluate_predictions(y_true, y_pred):
 
 
 def get_base_models():
-    """Return all base models with tuned hyperparameters."""
+    """
+    Get dictionary of configured base models with tuned hyperparameters.
+    
+    Returns
+    -------
+    dict
+        Dictionary of model instances:
+        - catboost: CatBoostRegressor
+        - extratrees: ExtraTreesRegressor
+        - elasticnet: ElasticNet
+        - xgboost: XGBRegressor
+        
+    Notes
+    -----
+    Each model is configured with:
+    - Tuned hyperparameters for thermal comfort prediction
+    - Early stopping where applicable
+    - Random seed for reproducibility
+    - Appropriate resource utilization settings
+    """
     return {
         "catboost": CatBoostRegressor(
             depth=7,
@@ -94,11 +172,42 @@ def get_base_models():
 
 def train_base_models(X, y, n_splits=5):
     """
-    Train base models using K-Fold CV and return out-of-fold predictions.
-
-    Returns:
-        oof_preds (DataFrame): OOF predictions for meta model training
-        model_results (dict): Performance metrics per model (avg across folds)
+    Train base models using K-Fold cross-validation and return out-of-fold predictions.
+    
+    Parameters
+    ----------
+    X : pandas.DataFrame
+        Input features
+    y : pandas.Series
+        Target values
+    n_splits : int, default=5
+        Number of K-Fold splits
+        
+    Returns
+    -------
+    tuple
+        oof_preds : pandas.DataFrame
+            Out-of-fold predictions from each base model
+        model_results : dict
+            Performance metrics for each model (averaged across folds)
+            
+    Notes
+    -----
+    Training Process:
+    1. Initialize K-Fold cross-validation
+    2. For each model:
+        - Train on K-1 folds
+        - Predict on held-out fold
+        - Store out-of-fold predictions
+        - Calculate performance metrics
+    3. Track train vs validation accuracy for overfitting detection
+    
+    Performance Metrics:
+    - RMSE: Root Mean Squared Error
+    - MAE: Mean Absolute Error
+    - R2: R-squared score
+    - Accuracy: Custom accuracy within tolerance
+    - Train_Accuracy: Training set accuracy for gap analysis
     """
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
     base_models = get_base_models()

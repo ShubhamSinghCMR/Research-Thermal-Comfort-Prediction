@@ -1,9 +1,31 @@
 """
-Improved feature engineering module for Thermal Comfort Prediction.
-- Uses only specified input features for each environment
-- Adds smarter missing value handling
-- Adds outlier capping
-- Uses RobustScaler for stable scaling
+Feature Engineering Module for Thermal Comfort Prediction
+======================================================
+
+This module handles data preprocessing and feature engineering for thermal comfort prediction.
+It includes functions for data cleaning, outlier handling, missing value imputation, and feature scaling.
+
+Key Features:
+------------
+- Environment-specific feature selection
+- Smart missing value handling with median/mode imputation
+- Outlier capping using IQR method
+- Robust scaling of numeric features
+- Categorical encoding for clothing and activity features
+
+Dependencies:
+------------
+- pandas: Data manipulation and analysis
+- numpy: Numerical operations
+- sklearn.preprocessing: Feature scaling
+
+Main Functions:
+-------------
+- load_and_preprocess_data: Main entry point for data preprocessing
+- clean_numeric_string: Cleans and standardizes numeric inputs
+- cap_outliers: Handles outliers using IQR method
+- handle_missing_values: Imputes missing values
+- scale_features: Scales numeric features and encodes categories
 """
 
 import pandas as pd
@@ -11,7 +33,19 @@ import numpy as np
 from sklearn.preprocessing import RobustScaler
 
 def clean_numeric_string(x):
-    """Clean numeric strings and handle missing indicators."""
+    """
+    Clean and standardize numeric string inputs, handling various missing value indicators.
+    
+    Parameters
+    ----------
+    x : str or numeric
+        Input value to clean
+        
+    Returns
+    -------
+    float or np.nan
+        Cleaned numeric value or np.nan for missing values
+    """
     if isinstance(x, str):
         x = x.strip().replace(' ', '')
         if x in ['', 'nan', 'NA', 'N/A']:
@@ -20,7 +54,25 @@ def clean_numeric_string(x):
 
 def cap_outliers(X, factor=1.5):
     """
-    Cap outliers using IQR method for numeric columns.
+    Cap outliers in numeric columns using the Interquartile Range (IQR) method.
+    
+    Parameters
+    ----------
+    X : pandas.DataFrame
+        Input features
+    factor : float, default=1.5
+        IQR multiplier for determining outlier boundaries
+        
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with capped outliers
+    
+    Notes
+    -----
+    - Uses Q1 - factor*IQR for lower bound
+    - Uses Q3 + factor*IQR for upper bound
+    - Only processes numeric columns
     """
     X_capped = X.copy()
     numeric_cols = X_capped.select_dtypes(include=[np.number]).columns
@@ -37,9 +89,23 @@ def cap_outliers(X, factor=1.5):
 
 def handle_missing_values(X):
     """
-    Handle missing values:
-    - Numeric: median imputation
-    - Categorical: mode imputation
+    Handle missing values in the dataset using appropriate imputation strategies.
+    
+    Parameters
+    ----------
+    X : pandas.DataFrame
+        Input features with missing values
+        
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with imputed values
+        
+    Notes
+    -----
+    Imputation Strategy:
+    - Numeric columns: Median imputation
+    - Categorical columns: Mode imputation
     """
     for col in X.columns:
         if X[col].dtype in [np.float64, np.int64]:
@@ -50,8 +116,23 @@ def handle_missing_values(X):
 
 def scale_features(X):
     """
-    Scale numeric columns using RobustScaler.
-    Encode categorical columns (Clothing, Activity) as category codes.
+    Scale numeric features and encode categorical variables.
+    
+    Parameters
+    ----------
+    X : pandas.DataFrame
+        Input features to scale
+        
+    Returns
+    -------
+    pandas.DataFrame
+        Scaled and encoded features
+        
+    Notes
+    -----
+    - Uses RobustScaler for numeric features to handle outliers
+    - Converts categorical variables to numeric codes
+    - Categorical columns: 'Clothing', 'Activity'
     """
     X_scaled = X.copy()
     categorical_cols = ['Clothing', 'Activity']
@@ -68,11 +149,37 @@ def scale_features(X):
 
 def load_and_preprocess_data(sheet_name):
     """
-    Load and preprocess data for a specific environment.
-    Returns:
-        X_scaled: Scaled features for model training
-        y: Target values
-        X_original: Original unscaled features for visualization and output
+    Load and preprocess data for a specific environment from the Excel dataset.
+    
+    Parameters
+    ----------
+    sheet_name : str
+        Name of the environment sheet in the Excel file
+        
+    Returns
+    -------
+    tuple
+        X_scaled : pandas.DataFrame
+            Scaled features ready for model training
+        y : pandas.Series
+            Target values (Given Final TSV)
+        X_original : pandas.DataFrame
+            Original unscaled features for visualization and output
+            
+    Notes
+    -----
+    Processing Steps:
+    1. Load data from Excel
+    2. Select required features based on environment
+    3. Clean numeric values
+    4. Handle missing values
+    5. Cap outliers
+    6. Scale features
+    7. Filter invalid target values
+    
+    Required Features:
+    - Classroom: RATemp, MRT, Top, Air Velo, RH
+    - Other environments: Above + Clothing, Activity
     """
     df = pd.read_excel('dataset/input_dataset.xlsx', sheet_name=sheet_name)
     df.columns = [col.strip() for col in df.columns]
@@ -121,6 +228,13 @@ def load_and_preprocess_data(sheet_name):
     return X_scaled, y, X_original
 
 def get_all_sheet_names():
-    """Return all environment sheet names."""
+    """
+    Get all environment sheet names from the input dataset.
+    
+    Returns
+    -------
+    list
+        List of sheet names representing different environments
+    """
     excel_file = pd.ExcelFile('dataset/input_dataset.xlsx')
     return excel_file.sheet_names
