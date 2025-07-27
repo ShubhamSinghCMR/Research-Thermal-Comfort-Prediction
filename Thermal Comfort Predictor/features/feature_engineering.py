@@ -70,9 +70,9 @@ def load_and_preprocess_data(sheet_name):
     """
     Load and preprocess data for a specific environment.
     Returns:
-        X_scaled: scaled/encoded features used for model
-        y: target values
-        X_original: original unscaled features for reporting
+        X_scaled: Scaled features for model training
+        y: Target values
+        X_original: Original unscaled features for visualization and output
     """
     df = pd.read_excel('dataset/input_dataset.xlsx', sheet_name=sheet_name)
     df.columns = [col.strip() for col in df.columns]
@@ -95,14 +95,14 @@ def load_and_preprocess_data(sheet_name):
         X[col] = X[col].apply(clean_numeric_string)
         X[col] = pd.to_numeric(X[col], errors='ignore')
 
-    # Save original copy before scaling
-    X_original = X.copy()
-
     # Handle missing values
     X = handle_missing_values(X)
 
     # Cap outliers
     X = cap_outliers(X)
+    
+    # Keep original version before scaling
+    X_original = X.copy()
 
     # Scale features
     X_scaled = scale_features(X)
@@ -115,8 +115,8 @@ def load_and_preprocess_data(sheet_name):
 
     valid_mask = ~y.isna()
     X_scaled = X_scaled[valid_mask]
-    y = y[valid_mask]
     X_original = X_original[valid_mask]
+    y = y[valid_mask]
 
     return X_scaled, y, X_original
 

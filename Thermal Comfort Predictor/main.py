@@ -119,8 +119,16 @@ def run_environment(sheet_name):
     """
     print_status(f"\n=== Processing Environment: {sheet_name} ===")
 
-    # Load and preprocess (now returns scaled, y, and original)
+    # Load and preprocess
     X_scaled, y, X_original = load_and_preprocess_data(sheet_name)
+    
+    # Print input features
+    print("\n--- Input Features ---")
+    for idx, feature in enumerate(X_original.columns, 1):
+        print(f"{idx}. {feature}")
+    print("Target: Given Final TSV")
+    print("-" * 20)
+    
     print_status(f"Data Loaded: {X_scaled.shape[0]} samples, {X_scaled.shape[1]} features")
 
     # Save statistics & correlation plots (use original)
