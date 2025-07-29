@@ -17,24 +17,27 @@ import matplotlib.pyplot as plt
 plt.ioff()  # Turn off interactive mode
 import seaborn as sns
 
-from features.feature_engineering import load_and_preprocess_data, get_all_sheet_names
-from utils.config import get_environment_params, SHOW_WARNINGS
-from models.base_models import train_base_models
-from models.meta_model import train_meta_model_kfold
-from utils.metrics import evaluate_predictions
+from adaptive_tsv_pipeline.features.feature_engineering import load_and_preprocess_data, get_all_sheet_names
+from adaptive_tsv_pipeline.utils.config import get_environment_params
+from adaptive_tsv_pipeline.models.base_models import train_base_models
+from adaptive_tsv_pipeline.models.meta_model import train_meta_model_kfold
+from adaptive_tsv_pipeline.utils.metrics import evaluate_predictions
 
+# Get the output directory path
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(SCRIPT_DIR, 'output')
 
 # ==================== VISUALIZATION FUNCTIONS ==================== #
 
 def plot_feature_importance(importance_df, env_name):
     """Plot meta-model feature importance"""
-    plt.figure(figsize=(8, 6))
+    plt.figure(figsize=(10, 8))
     plt.barh(importance_df["feature"], importance_df["importance"])
     plt.xlabel("Importance")
     plt.ylabel("Feature")
     plt.title(f"Meta-Model Feature Importance - {env_name}")
     plt.tight_layout()
-    output_path = f"output/{env_name.replace(' ','_')}_meta_feature_importance.png"
+    output_path = os.path.join(OUTPUT_DIR, f"{env_name.replace(' ','_')}_meta_feature_importance.png")
     plt.savefig(output_path)
     plt.close()
     print(f"[📊 Saved] Feature Importance Plot → {output_path}")
@@ -49,7 +52,7 @@ def plot_actual_vs_predicted(y_true, y_pred, env_name):
     plt.ylabel("TSV Predicted")
     plt.title(f"Actual vs Predicted TSV - {env_name}")
     plt.tight_layout()
-    output_path = f"output/{env_name.replace(' ','_')}_actual_vs_predicted.png"
+    output_path = os.path.join(OUTPUT_DIR, f"{env_name.replace(' ','_')}_actual_vs_predicted.png")
     plt.savefig(output_path)
     plt.close()
     print(f"[📊 Saved] Actual vs Predicted Plot → {output_path}")
@@ -70,7 +73,7 @@ def plot_error_analysis(y_true, y_pred, env_name):
     plt.title(f"Error Distribution - {env_name}")
     plt.legend()
     plt.tight_layout()
-    output_path = f"output/{env_name.replace(' ','_')}_error_analysis.png"
+    output_path = os.path.join(OUTPUT_DIR, f"{env_name.replace(' ','_')}_error_analysis.png")
     plt.savefig(output_path)
     plt.close()
     print(f"[📊 Saved] Error Analysis Plot → {output_path}")
@@ -78,13 +81,16 @@ def plot_error_analysis(y_true, y_pred, env_name):
 
 def plot_correlation_heatmap(X, y, env_name):
     """Correlation heatmap for input features and TSV"""
-    df_corr = X.copy()
+    # Select only numeric columns
+    numeric_cols = X.select_dtypes(include=[np.number]).columns
+    df_corr = X[numeric_cols].copy()
     df_corr["Given Final TSV"] = y.values
-    plt.figure(figsize=(8, 6))
+    
+    plt.figure(figsize=(10, 8))
     sns.heatmap(df_corr.corr(), annot=True, fmt=".2f", cmap="coolwarm")
     plt.title(f"Correlation Heatmap - {env_name}")
     plt.tight_layout()
-    output_path = f"output/{env_name.replace(' ','_')}_correlation_heatmap.png"
+    output_path = os.path.join(OUTPUT_DIR, f"{env_name.replace(' ','_')}_correlation_heatmap.png")
     plt.savefig(output_path)
     plt.close()
     print(f"[📊 Saved] Correlation Heatmap → {output_path}")
@@ -96,7 +102,7 @@ def save_statistical_summary(X, y, env_name):
     summary_df["Given Final TSV"] = y.values
     stats = summary_df.describe().T
     stats["missing_values"] = summary_df.isna().sum()
-    output_path = f"output/{env_name.replace(' ','_')}_statistics_summary.csv"
+    output_path = os.path.join(OUTPUT_DIR, f"{env_name.replace(' ','_')}_statistics_summary.csv")
     stats.to_csv(output_path)
     print(f"[📂 Saved] Statistical Summary CSV → {output_path}")
 
@@ -121,6 +127,12 @@ def run_environment(sheet_name):
 
     # Load and preprocess
     X_scaled, y, X_original = load_and_preprocess_data(sheet_name)
+
+    # 🔹 CHECK for missing required columns (Door, Window, Fan)
+    required_columns = {"Door", "Window", "Fan"}
+    if sheet_name == "Class room" or not required_columns.issubset(X_original.columns):
+        print(f"[⚠️ Skipped] {sheet_name}: No Adaptive TSV is predicted due to missing data.")
+        return None
     
     # Print input features
     print("\n--- Input Features ---")
@@ -187,7 +199,7 @@ def run_environment(sheet_name):
     predictions_df = X_original.copy()
     predictions_df["Given Final TSV"] = y.values
     predictions_df["TSV_Predicted"] = oof_meta_preds
-    output_file = f"output/{sheet_name.replace(' ', '_')}_predictions.csv"
+    output_file = os.path.join(OUTPUT_DIR, f"{sheet_name.replace(' ', '_')}_predictions.csv")
     try:
         predictions_df.to_csv(output_file, index=False)
         print(f"[📂 Saved] Predictions for {sheet_name} → {output_file}")
@@ -212,7 +224,8 @@ def run_environment(sheet_name):
 
 def main():
     """Main function"""
-    os.makedirs("output", exist_ok=True)
+    # Create output directory if it doesn't exist
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     sheet_names = get_all_sheet_names()
     all_results = {}
@@ -244,8 +257,8 @@ def main():
 
     summary_df = pd.DataFrame(summary_data)
     try:
-        summary_df.to_csv("output/final_meta_model_results.csv", index=False)
-        print("\n=== Final Results Saved to output/final_meta_model_results.csv ===")
+        summary_df.to_csv(os.path.join(OUTPUT_DIR, "adaptive_tsv_results.csv"), index=False)
+        print("\n=== Adaptive TSV Results Saved to output/adaptive_tsv_results.csv ===")
         print(summary_df)
     except PermissionError:
         print("\n[⚠️ Error] Could not save final results - File is open in another program.")
@@ -260,6 +273,7 @@ def main():
         print("\n[⚠️ Warning] Some environments failed to process:")
         for env in failed_environments:
             print(f"- {env}")
+
 
 if __name__ == "__main__":
     main()

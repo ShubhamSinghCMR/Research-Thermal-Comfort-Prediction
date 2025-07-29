@@ -1,0 +1,4 @@
+Environment,**RMSE (Predicted_TSV)**,**RMSE (Adaptive_TSV)**,**RMSE (Difference)**,**MAE (Predicted_TSV)**,**MAE (Adaptive_TSV)**,**MAE (Difference)**,**R2 (Predicted_TSV)**,**R2 (Adaptive_TSV)**,**R2 (Difference)**,**Accuracy (Predicted_TSV)**,**Accuracy (Adaptive_TSV)**,**Accuracy (Difference)**,**Residual_STD (Predicted_TSV)**,**Residual_STD (Adaptive_TSV)**,**Residual_STD (Difference)**,**MBE (Predicted_TSV)**,**MBE (Adaptive_TSV)**,**MBE (Difference)**
+Hostel,0.9942,0.9819,-0.0123,0.7813,0.7699,-0.0113,0.2485,0.267,0.0185,0.3992,0.3959,-0.0033,0.9942,0.9819,-0.0123,-0.0002,-0.0029,-0.0027
+Hostel_Winter Data,0.9343,0.9194,-0.0148,0.7776,0.7561,-0.0215,0.0372,0.0675,0.0303,0.3585,0.3868,0.0283,0.9343,0.9194,-0.0148,-0.0001,0.0033,0.0034
+Workshop or laboratory,0.8711,0.8736,0.0025,0.6815,0.6856,0.0041,0.4806,0.4775,-0.003,0.4651,0.4664,0.0014,0.8711,0.8736,0.0025,-0.0011,-0.0032,-0.0021
