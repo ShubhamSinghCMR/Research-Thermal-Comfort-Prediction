@@ -77,10 +77,13 @@ def plot_error_analysis(y_true, y_pred, env_name):
 
 
 def plot_correlation_heatmap(X, y, env_name):
-    """Correlation heatmap for input features and TSV"""
-    df_corr = X.copy()
+    """Correlation heatmap for numeric input features and TSV"""
+    # Select only numeric columns
+    numeric_cols = X.select_dtypes(include=[np.number]).columns
+    df_corr = X[numeric_cols].copy()
     df_corr["Given Final TSV"] = y.values
-    plt.figure(figsize=(8, 6))
+    
+    plt.figure(figsize=(10, 8))
     sns.heatmap(df_corr.corr(), annot=True, fmt=".2f", cmap="coolwarm")
     plt.title(f"Correlation Heatmap - {env_name}")
     plt.tight_layout()
