@@ -1,0 +1,9 @@
+Feature,Type,Univariate_Score,Perm_DeltaR2,Perm_DeltaMAE,Perm_DeltaAcc,Combined_Score,Stability_Freq,Selected,Rank
+Clothing,categorical,0.36107642774840565,0.0,0.0,0.0,1.0,1.0,True,1
+Season,categorical,0.0,0.0,0.0,0.0,1.0,1.0,True,2
+Activity,categorical,0.0,0.0,0.0,0.0,1.0,1.0,True,3
+MRT,numeric,0.041044797892478044,0.0026236616056700838,0.001198264846975361,0.0,1.0,1.0,False,4
+RH,numeric,0.0027651772560393123,0.0,0.0,0.0,1.0,1.0,False,5
+Top,numeric,0.06833100609793122,0.010575900542618344,0.005349420659049649,0.0,1.0,1.0,False,6
+RATemp,numeric,0.018579672702628686,0.0,0.0,0.0,1.0,1.0,False,7
+Air Velo,numeric,0.017172946142886843,0.0,0.0,0.0,1.0,1.0,False,8

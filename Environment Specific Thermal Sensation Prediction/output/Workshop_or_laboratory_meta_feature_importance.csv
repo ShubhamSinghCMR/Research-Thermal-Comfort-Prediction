@@ -1,0 +1,5 @@
+feature,importance
+catboost,589.6
+elasticnet,468.6
+xgboost,420.4
+extratrees,399.4
