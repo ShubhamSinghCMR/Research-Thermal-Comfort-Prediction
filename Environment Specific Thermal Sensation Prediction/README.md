@@ -9,6 +9,7 @@ intervals, and metrics. Includes an **ablation runner**.
 2. Put your Excel at `dataset/input_dataset.xlsx`
 3. Run the main pipeline: `python run_main_pipeline.py`
 4. Run ablations: `python scripts/run_ablations.py`
+5. Run baselines: `python scripts/run_baselines.py`
 
 ## Switches (utils/config.py)
 - `SELECTION_MODE`: 'none' | 'univariate_only' | 'permutation_only' | 'hybrid'

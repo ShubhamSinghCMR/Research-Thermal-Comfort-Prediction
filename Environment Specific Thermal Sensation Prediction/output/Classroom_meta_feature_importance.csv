@@ -1,5 +1,5 @@
 feature,importance
-catboost,276.2
-elasticnet,244.2
-extratrees,216.2
-xgboost,175.4
+catboost,0.3816265664271235
+elasticnet,0.06417701769618717
+xgboost,0.057541577861170944
+extratrees,0.055421520573184044

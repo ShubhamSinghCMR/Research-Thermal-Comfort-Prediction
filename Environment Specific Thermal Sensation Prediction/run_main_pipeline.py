@@ -11,6 +11,7 @@ from utils.calibration import compute_bias_and_qhat, apply_calibration
 from models.base_models import train_base_models
 from models.meta_model import train_meta_model_kfold
 
+import utils.compat_lgbm  # LightGBM IO + warning filters (SHOW_WARNINGS)
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "output")
 
 def ensure_output():
