@@ -38,10 +38,10 @@ CALIBRATION_ON = True
 ENSEMBLE_BASE_MODELS = ["catboost", "xgboost", "lightgbm", "elasticnet", "svr_rbf"]
 
 # Meta-learner for stacking: "ridge" | "nnls" | "avg" | "lgbm"
-STACKING_METHOD = "ridge"
+STACKING_METHOD = "nnls"
 
 # Optionally auto-select best stacker by CV R2 among candidates
-AUTO_SELECT_STACKER = True
+AUTO_SELECT_STACKER = False
 STACKER_CANDIDATES = ["ridge", "nnls", "avg", "lgbm"]
 
 # Ridge search grid for meta
