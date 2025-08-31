@@ -1,9 +1,18 @@
 
-import os
+import os, sys,logging
+from pathlib import Path
+
+CURRENT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = CURRENT_DIR.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+
 import numpy as np
 import pandas as pd
+import utils.compat_lgbm  # noqa: F401
 
-from pathlib import Path
 from sklearn.model_selection import KFold
 
 # sklearn regressors

@@ -1,0 +1,5 @@
+feature,importance
+catboost,0.6094921842269252
+elasticnet,0.26971224749906986
+extratrees,0.12079556827400488
+xgboost,0.0
