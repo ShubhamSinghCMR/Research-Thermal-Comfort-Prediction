@@ -15,11 +15,14 @@ from utils.config import (
     FOLDS, TOP_M_PER_FOLD, STABILITY_TAU, PERM_REPEATS,
     SELECTION_MODE, SELECTION_SCOPE, KMIN, KMAX
 )
+from lightgbm import LGBMRegressor
+from sklearn.svm import SVR
 
 def get_base_models_from_params(env_params):
     return {
         "catboost":   CatBoostRegressor(**env_params["catboost"]),
-        "extratrees": ExtraTreesRegressor(**env_params["extratrees"]),
+        "lightgbm":   LGBMRegressor(**env_params["lightgbm"]),
+        "svr_rbf":    SVR(**env_params["svr_rbf"]),
         "elasticnet": ElasticNet(**env_params["elasticnet"]),
         "xgboost":    XGBRegressor(**env_params["xgboost"]),
     }
@@ -39,7 +42,8 @@ def train_base_models(X_orig, y, env_params, n_splits=FOLDS, per_model_selection
     kf = KFold(n_splits=n_splits, shuffle=True,
                random_state=env_params["lightgbm"].get("random_state", 42))
 
-    model_names = ["catboost","extratrees","elasticnet","xgboost"]
+    from utils.config import ENSEMBLE_BASE_MODELS
+    model_names = ENSEMBLE_BASE_MODELS[:]  # ["catboost","xgboost","lightgbm","elasticnet","svr_rbf"]
     per_model_fold_picks  = {m: [] for m in model_names}
     per_model_fold_scores = {m: [] for m in model_names}
     per_model_stats       = {m: {} for m in model_names}
@@ -62,6 +66,8 @@ def train_base_models(X_orig, y, env_params, n_splits=FOLDS, per_model_selection
                 model.fit(Xtr_t, ytr, eval_set=[(Xva_t, yva)], verbose=False)
             elif m == "catboost":
                 model.fit(Xtr_t, ytr, eval_set=(Xva_t, yva), verbose=False)
+            elif m == "lightgbm":
+                model.fit(Xtr_t, ytr, eval_set=[(Xva_t, yva)])  # uses LGBMRegressor
             else:
                 model.fit(Xtr_t, ytr)
 
@@ -159,6 +165,8 @@ def train_base_models(X_orig, y, env_params, n_splits=FOLDS, per_model_selection
                 model.fit(Xtr_t, ytr, eval_set=[(Xva_t, yva)], verbose=False)
             elif m == "catboost":
                 model.fit(Xtr_t, ytr, eval_set=(Xva_t, yva), verbose=False)
+            elif m == "lightgbm":
+                model.fit(Xtr_t, ytr, eval_set=[(Xva_t, yva)])
             else:
                 model.fit(Xtr_t, ytr)
 
