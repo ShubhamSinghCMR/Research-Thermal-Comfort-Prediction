@@ -29,7 +29,7 @@ from utils.stat_tests import regression_metrics, wilcoxon_main_vs_baseline, holm
 warnings.filterwarnings("ignore")
 
 OUTPUT_DIR = PROJECT_ROOT / "output"
-PLOTS_ROOT = OUTPUT_DIR / "plots"
+PLOTS_ROOT = OUTPUT_DIR / "stats and plots"
 DATA_XLSX = PROJECT_ROOT / "dataset" / "input_dataset.xlsx"
 
 STACKED_TAG = "stacked_ensemble"
@@ -168,68 +168,75 @@ def main():
     _ensure_dir(PLOTS_ROOT)
     envs = collect_envs()
 
-    # correlation per environment
-    for env in envs:
-        df = load_env_dataframe(env)
-        base_numeric = ['RATemp', 'MRT', 'Top', 'Air Velo', 'RH']
-        base_cats = ['Season', 'Clothing', 'Activity']
-        feats = [c for c in (base_numeric if env == "Classroom" else base_numeric + base_cats) if c in df.columns]
-        X = df[feats].copy()
-        env_tag = env.replace(" ", "_")
-        Xnum = X.select_dtypes(include=[np.number])
-        if Xnum.shape[1] >= 2:
-            plot_correlation(Xnum, PLOTS_ROOT / f"{env_tag}_correlation_heatmap.png",
-                             PLOTS_ROOT / f"{env_tag}_correlation_matrix.csv",
-                             PLOTS_ROOT / f"{env_tag}_correlation_pvalues.csv")
-
-    summary_rows = []
-    env_metric_maps = {m:{} for m in METRICS}
-
+    # Read comparison_all_models_ranked.csv first as it's our main data source
+    ranked_csv = OUTPUT_DIR / "comparison_all_models_ranked.csv"
+    if not ranked_csv.exists():
+        print(f"[ERROR] Missing ranked comparison file: {ranked_csv}")
+        return
+        
+    df_ranked = pd.read_csv(ranked_csv)
+    
+    # correlation per environment - using the same prediction files as ranked comparison
     for env in envs:
         env_tag = env.replace(" ", "_")
         f_main = find_prediction_file(env, STACKED_TAG)
         if not f_main or not f_main.exists():
-            print(f"[WARN] Missing stacked predictions for {env}"); continue
-        df_main = pd.read_csv(f_main)
-        y_true = df_main.filter(regex="Given Final TSV|Given_Final_TSV|Given.*TSV", axis=1)
-        if y_true.shape[1] == 0: print(f"[ERROR] Cannot find target column in {f_main}"); continue
-        y_true = y_true.iloc[:,0].values
-        if "TSV_Predicted" in df_main.columns: y_pred_main = df_main["TSV_Predicted"].values
-        elif "oof_pred" in df_main.columns:   y_pred_main = df_main["oof_pred"].values
-        else: y_pred_main = df_main[[c for c in df_main.columns if "Predicted" in c][0]].values
+            print(f"[WARN] Missing prediction file for correlation analysis: {env}")
+            continue
+            
+        df = pd.read_csv(f_main)
+        base_numeric = ['RATemp', 'MRT', 'Top', 'Air Velo', 'RH']
+        base_cats = ['Season', 'Clothing', 'Activity']
+        feats = [c for c in (base_numeric if env == "Classroom" else base_numeric + base_cats) if c in df.columns]
+        X = df[feats].copy()
+        Xnum = X.select_dtypes(include=[np.number])
+        if Xnum.shape[1] >= 2:
+            plot_correlation(Xnum, PLOTS_ROOT / f"{env_tag}_correlation_heatmap_01.png",
+                             PLOTS_ROOT / f"{env_tag}_correlation_matrix.csv",
+                             PLOTS_ROOT / f"{env_tag}_correlation_pvalues.csv")
 
-        met_main = regression_metrics(y_true, y_pred_main)
-        for metric in METRICS: env_metric_maps[metric].setdefault(env, {})[STACKED_TAG] = met_main[metric]
+    # Already read ranked_csv above, continue with metric maps
+    env_metric_maps = {m:{} for m in METRICS}
 
-        rows_env = []
-        abs_err_main = np.abs(y_true - y_pred_main)
-        for key in _autodiscover_models(env):
-            f_base = find_prediction_file(env, key)
-            if not f_base or not f_base.exists(): continue
-            df_base = pd.read_csv(f_base)
-            if "TSV_Predicted" not in df_base.columns: continue
-            y_pred_b = df_base["TSV_Predicted"].values
-            n = min(len(y_true), len(y_pred_b), len(y_pred_main))
-            y_t = y_true[:n]; a_main = abs_err_main[:n]; a_base = np.abs(y_t - y_pred_b[:n])
-            w = wilcoxon_main_vs_baseline(a_main, a_base)
-            met_base = regression_metrics(y_t, y_pred_b[:n])
-            for metric in METRICS: env_metric_maps[metric].setdefault(env, {})[key] = met_base[metric]
-            rows_env.append({"Environment": env, "Baseline": key,
-                             **{f"Main_{m}": met_main[m] for m in METRICS},
-                             **{f"Base_{m}": met_base[m] for m in METRICS},
-                             "Wilcoxon_stat": w["wilcoxon_stat"], "p_raw": w["pvalue"]})
+    # Populate metric maps from ranked comparison data
+    for env in envs:
+        env_data = df_ranked[df_ranked['Environment'] == env]
+        if env_data.empty:
+            # Try with normalized environment name
+            env_data = df_ranked[df_ranked['Environment'] == env.replace('_', ' ')]
+        if env_data.empty:
+            print(f"[WARN] No data found for environment: {env}")
+            continue
+            
+        for metric in METRICS:
+            if metric not in env_data.columns:
+                print(f"[WARN] Metric {metric} not found in ranked comparison data")
+                continue
+            env_metric_maps[metric][env] = dict(zip(env_data['Model'], env_data[metric]))
+
+    # Generate confusion matrices using the same prediction files as ranked comparison
+    for env in envs:
+        env_tag = env.replace(" ", "_")
+        f_main = find_prediction_file(env, STACKED_TAG)
+        if not f_main or not f_main.exists():
+            print(f"[WARN] Missing prediction file for confusion matrix: {env}")
+            continue
+            
         try:
-            y_true_cls = _classify_tsv(y_true); y_pred_cls = _classify_tsv(y_pred_main)
+            # Use the same file that was used for the ranked comparison
+            df_main = pd.read_csv(f_main)
+            y_true = df_main.filter(regex="Given Final TSV|Given_Final_TSV|Given.*TSV", axis=1).iloc[:,0].values
+            y_pred_main = df_main["TSV_Predicted"].values if "TSV_Predicted" in df_main.columns else \
+                        df_main["oof_pred"].values if "oof_pred" in df_main.columns else \
+                        df_main[[c for c in df_main.columns if "Predicted" in c][0]].values
+            
+            y_true_cls = _classify_tsv(y_true)
+            y_pred_cls = _classify_tsv(y_pred_main)
             _plot_confusion_matrix(y_true_cls, y_pred_cls, ["Cool","Neutral","Warm"],
                                    f"Confusion Matrix (3-class TSV) — {env}",
-                                   PLOTS_ROOT / f"{env_tag}_confusion_matrix_STACKED.png")
+                                PLOTS_ROOT / f"{env_tag}_confusion_matrix_STACKED_01.png")
         except Exception as e:
             print(f"[WARN] Confusion matrix skipped for {env}: {e}")
-        if rows_env:
-            pd.DataFrame(rows_env).to_csv(OUTPUT_DIR / f"{env_tag}_stats_main_vs_baselines_all_metrics.csv", index=False)
-        summary_rows.append({"Environment": env, "Model": STACKED_TAG, **met_main})
-
-    if summary_rows: pd.DataFrame(summary_rows).to_csv(OUTPUT_DIR / "stacked_model_metrics_summary_all_metrics.csv", index=False)
 
     # per-env rankings and 3-in-1
     for metric in METRICS:
@@ -248,9 +255,9 @@ def main():
                 items = sorted(env_metric_maps[metric][env].items(), key=lambda kv: kv[1], reverse=not LOWER_BETTER[metric])
                 labels = [_format_model_label(k) for k,_ in items]; values = [v for _,v in items]
                 _nice_barh(axes[i], labels, values, metric, add_title=env, xshare=xshare)
-            fig.suptitle(f"Per‑environment model rankings — {metric}", fontsize=14)
+            # fig.suptitle(f"Per‑environment model rankings — {metric}", fontsize=14)
             fig.tight_layout(pad=2.0); plt.subplots_adjust(left=0.08, right=0.98, top=0.90, bottom=0.10, wspace=0.35)
-            fig.savefig(PLOTS_ROOT / f"cv_summary_3in1_env_rankings_{metric}.png", dpi=260); plt.close(fig)
+            fig.savefig(PLOTS_ROOT / f"cv_summary_3in1_env_rankings_{metric}_02.png", dpi=260); plt.close(fig)
 
 if __name__ == "__main__":
     main()

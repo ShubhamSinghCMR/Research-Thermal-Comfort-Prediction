@@ -142,6 +142,24 @@ python scripts/run_baselines.py
 python scripts/run_stacker_sweep.py
 ```
 
+**E) Additional Analysis Scripts**
+```bash
+# Generate SCIE figures
+python scripts/make_scie_figures.py --env all
+
+# Run statistical tests and generate plots
+python scripts/run_stats_and_plots.py
+
+# Generate predicted vs observed plots
+python scripts/plot_pred_vs_obs.py
+
+# Run ablation studies
+python scripts/run_ablations.py
+
+# Run leave-one-environment-out generalizability tests
+python scripts/run_loeo_generalizability.py
+```
+
 > **Run from the project root** (the folder that contains `run_main_pipeline.py`).
 
 ---
