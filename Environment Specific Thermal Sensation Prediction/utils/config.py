@@ -143,6 +143,10 @@ def get_environment_params(environment_name):
     elif environment_name == "Workshop or laboratory":
         catboost.update({"depth": 6})
         lightgbm.update({"num_leaves": 28})
+    elif environment_name == "Combined":
+        # Combined environment uses same parameters as Classroom since they share the same feature structure
+        catboost.update({"depth": 6, "learning_rate": 0.04})
+        lightgbm.update({"num_leaves": 25, "max_depth": 6})
 
     params = {
         "catboost": catboost,

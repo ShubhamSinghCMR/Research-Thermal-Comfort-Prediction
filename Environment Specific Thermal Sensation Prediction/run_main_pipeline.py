@@ -20,7 +20,8 @@ def ensure_output():
 def extract_Xy(df, sheet):
     base_numeric = ['RATemp', 'MRT', 'Top', 'Air Velo', 'RH']
     base_cats = ['Season', 'Clothing', 'Activity']
-    feats = [c for c in (base_numeric if sheet == "Classroom" else base_numeric + base_cats) if c in df.columns]
+    # Combined environment uses same features as Classroom (numeric only)
+    feats = [c for c in (base_numeric if sheet in ["Classroom", "Combined"] else base_numeric + base_cats) if c in df.columns]
     target = "Given Final TSV"
     if target not in df.columns:
         raise ValueError(f"Target '{target}' not found in sheet '{sheet}'")
