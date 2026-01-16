@@ -1,4 +1,4 @@
-# Research-Thermal-Comfort-Prediction
+# Research - Thermal Comfort Prediction
 
 A research-focused repository for studying **thermal comfort prediction** using **data-driven, statistical, and machine learning approaches**.
 
