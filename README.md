@@ -1,3 +1,7 @@
-# Machine Learning Projects
+# Research-Thermal-Comfort-Prediction
 
-This repository is a curated collection of machine learning projects—ranging from classical ML to deep learning—organized to make exploration, comparison, and reuse easy. Each project includes its own code, configuration, and documentation focused on the problem it solves and the results it achieves.
+A research-focused repository for studying **thermal comfort prediction** using **data-driven, statistical, and machine learning approaches**.
+
+This repository serves as a **central and evolving research codebase**, supporting exploratory analysis, environment-specific and generalized modeling, feature engineering, ensemble methods, and comparative evaluation across thermal comfort studies.
+
+Designed to remain **method-agnostic and extensible**, the repository will expand as new research questions, datasets, and modeling strategies are introduced in the domain of human thermal comfort.
