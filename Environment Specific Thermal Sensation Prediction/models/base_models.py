@@ -113,7 +113,7 @@ def train_base_models(X_orig, y, env_params, n_splits=FOLDS, per_model_selection
 
     selected_features = {}
     selection_reports = {}
-    cat_set = set([c for c in ["Season","Clothing","Activity"] if c in X_df.columns])
+    cat_set = set([c for c in ["Season","Clothing","Activity","Environment"] if c in X_df.columns])
 
     for m in model_names:
         pool, freq_map, mean_scores = stability_selection(

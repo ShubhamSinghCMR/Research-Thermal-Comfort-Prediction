@@ -17,12 +17,26 @@ OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "output")
 def ensure_output():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+TARGET_COLUMN = "Given Final TSV"
+# Columns to exclude from features in all sheets (target + index-like columns)
+EXCLUDE_FROM_FEATURES = (TARGET_COLUMN, "Sr. No.", "Sr No.", "Sr No", "S.No.", "S No.", "Sr.No.")
+
+def _is_excluded_column(col):
+    col = str(col).strip()
+    if col in EXCLUDE_FROM_FEATURES:
+        return True
+    # Normalize: lower, collapse spaces so "Sr.  No." / "SR NO" / "Sr.No." etc. match
+    n = " ".join(col.lower().split())
+    if n in ("sr. no.", "sr no.", "sr no", "s.no.", "s no.", "sr.no."):
+        return True
+    if n.replace(".", "").replace(" ", "") == "srno":
+        return True
+    return False
+
 def extract_Xy(df, sheet):
-    base_numeric = ['RATemp', 'MRT', 'Top', 'Air Velo', 'RH']
-    base_cats = ['Season', 'Clothing', 'Activity']
-    # Combined environment uses same features as Classroom (numeric only)
-    feats = [c for c in (base_numeric if sheet in ["Classroom", "Combined"] else base_numeric + base_cats) if c in df.columns]
-    target = "Given Final TSV"
+    # Use all columns in the sheet as candidate features; selection will pick top features per model.
+    feats = [c for c in df.columns if not _is_excluded_column(c)]
+    target = TARGET_COLUMN
     if target not in df.columns:
         raise ValueError(f"Target '{target}' not found in sheet '{sheet}'")
     X = df[feats].copy()
@@ -41,7 +55,17 @@ def main():
         X, y = extract_Xy(df, sheet)
         env_params = get_environment_params(sheet)
 
+        print("INITIAL FEATURES")
+        print(list(X.columns))
+
         oof_preds, base_results, selection_reports, selected_features = train_base_models(X, y, env_params)
+
+        print("TOP FEATURES USED IN TRAINING")
+        all_top = set()
+        for m, feats in selected_features.items():
+            all_top.update(feats)
+            print(f"  {m}: {feats}")
+        print(f"  (union: {sorted(all_top)})")
 
         for m, rep in selection_reports.items():
             rep_path = os.path.join(OUTPUT_DIR, f"{sheet.replace(' ','_')}_{m}_selected_features.csv")

@@ -28,7 +28,7 @@ class CapIQRTransformer(BaseEstimator, TransformerMixin):
         return np.asarray(input_features if input_features is not None else [], dtype=object)
 
 def detect_cols(X_df):
-    cat_cols = [c for c in ["Season","Clothing","Activity"] if c in X_df.columns]
+    cat_cols = [c for c in ["Season","Clothing","Activity","Environment"] if c in X_df.columns]
     num_cols = [c for c in X_df.columns if c not in cat_cols]
     return num_cols, cat_cols
 
