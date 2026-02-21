@@ -6,6 +6,7 @@ from joblib import dump
 
 from features.feature_engineering import get_all_sheet_names, load_environment_sheet
 from utils.config import get_environment_params, USE_STACKING, CALIBRATION_ON
+from utils.preprocess import add_environment_interactions
 from utils.metrics import evaluate_predictions
 from utils.calibration import compute_bias_and_qhat, apply_calibration
 from models.base_models import train_base_models
@@ -53,12 +54,19 @@ def main():
         print(f"\n=== Processing Environment: {sheet} ===")
         df = load_environment_sheet(sheet)
         X, y = extract_Xy(df, sheet)
+        X = add_environment_interactions(X)
         env_params = get_environment_params(sheet)
+
+        if "Environment" in X.columns and X["Environment"].nunique() > 1:
+            env_counts = X["Environment"].value_counts()
+            sample_weight = (1.0 / X["Environment"].map(env_counts)).to_numpy(dtype=float)
+        else:
+            sample_weight = None
 
         print("INITIAL FEATURES")
         print(list(X.columns))
 
-        oof_preds, base_results, selection_reports, selected_features = train_base_models(X, y, env_params)
+        oof_preds, base_results, selection_reports, selected_features = train_base_models(X, y, env_params, sample_weight=sample_weight)
 
         print("TOP FEATURES USED IN TRAINING")
         all_top = set()
@@ -78,7 +86,7 @@ def main():
         y_series = pd.Series(y).reset_index(drop=True)
 
         if USE_STACKING:
-            meta = train_meta_model_kfold(oof_preds, y_series, env_params)
+            meta = train_meta_model_kfold(oof_preds, y_series, env_params, sample_weight=sample_weight)
             oof_meta = meta['oof_predictions']
 
             fi_path = os.path.join(OUTPUT_DIR, f"{sheet.replace(' ','_')}_meta_feature_importance.csv")
@@ -87,7 +95,7 @@ def main():
             if 'objective' not in lgb_params:
                 lgb_params['objective'] = 'huber'
             meta_full = lgb.LGBMRegressor(**lgb_params)
-            meta_full.fit(oof_preds, y_series)
+            meta_full.fit(oof_preds, y_series, sample_weight=sample_weight)
             model_path = os.path.join(OUTPUT_DIR, f"{sheet.replace(' ','_')}_meta_model.joblib")
             dump(meta_full, model_path)
             y_pred = oof_meta

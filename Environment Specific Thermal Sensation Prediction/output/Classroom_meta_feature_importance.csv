@@ -1,6 +1,6 @@
 feature,importance
-catboost,0.7469025704420604
-elasticnet,0.2530974295579395
-xgboost,0.0
+catboost,0.6270101135206161
+elasticnet,0.2600808046055232
+xgboost,0.11290908187386071
 lightgbm,0.0
 svr_rbf,0.0

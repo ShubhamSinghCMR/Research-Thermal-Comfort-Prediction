@@ -32,6 +32,26 @@ def detect_cols(X_df):
     num_cols = [c for c in X_df.columns if c not in cat_cols]
     return num_cols, cat_cols
 
+
+def add_environment_interactions(X_df):
+    """Add Environment x physical interaction features. In-place then return X_df."""
+    if "Environment" not in X_df.columns:
+        return X_df
+    physical_candidates = ["Top", "MRT", "RH", "Air Velo", "RATemp", "Clothing"]
+    physical_vars = [
+        c for c in physical_candidates
+        if c in X_df.columns and (X_df[c].dtype.kind in "fc" or pd.api.types.is_numeric_dtype(X_df[c]))
+    ]
+    if not physical_vars:
+        return X_df
+    env_ser = X_df["Environment"].astype(str)
+    for env_val in env_ser.unique():
+        safe_suffix = str(env_val).replace(" ", "_").replace("/", "_")
+        mask = (env_ser == str(env_val)).astype(float)
+        for phy in physical_vars:
+            X_df[f"{phy}_{safe_suffix}"] = X_df[phy].astype(float) * mask
+    return X_df
+
 def build_fold_preprocessor(X_train_df):
     X = X_train_df.copy()
     num_cols, cat_cols = detect_cols(X)
