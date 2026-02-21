@@ -229,7 +229,10 @@ def main():
             y_pred_main = df_main["TSV_Predicted"].values if "TSV_Predicted" in df_main.columns else \
                         df_main["oof_pred"].values if "oof_pred" in df_main.columns else \
                         df_main[[c for c in df_main.columns if "Predicted" in c][0]].values
-            
+            # Use rounded and clipped class values for confusion matrix (align with ordinal metrics)
+            y_true = np.clip(np.round(np.asarray(y_true, dtype=float)), -3, 3)
+            y_pred_main = np.clip(np.round(np.asarray(y_pred_main, dtype=float)), -3, 3)
+
             y_true_cls = _classify_tsv(y_true)
             y_pred_cls = _classify_tsv(y_pred_main)
             _plot_confusion_matrix(y_true_cls, y_pred_cls, ["Cool","Neutral","Warm"],

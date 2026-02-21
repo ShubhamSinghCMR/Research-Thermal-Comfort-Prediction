@@ -147,7 +147,7 @@ def main():
         summary_path = os.path.join(OUTPUT_DIR, "predicted_tsv_results.csv")
         summary_df.to_csv(summary_path, index=False)
         print(f"\n=== Summary saved → {summary_path} ===")
-        print(summary_df)
+        print(summary_df.to_string())
 
 if __name__ == "__main__":
     main()
