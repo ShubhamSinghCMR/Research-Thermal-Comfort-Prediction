@@ -106,6 +106,22 @@ python -m pip install -r requirements.txt
 
 ## 5) Execution
 
+### Recommended sequence (full pipeline)
+
+Run from the project root (`Environment Specific Thermal Sensation Prediction`) in this order:
+
+| Step | Command | What it generates |
+|------|---------|--------------------|
+| **1** | `python scripts/run_full_comparison.py` | Runs main ensemble + all baselines; writes per-env `{Env}_predictions.csv`, `{Env}_metrics.csv`, `{Env}_{model}_*`; global `comparison_all_models.csv`, `comparison_all_models_ranked.csv`, `baselines_comparison.csv`, `predicted_tsv_results.csv`. |
+| **2** | `python scripts/run_stats_and_plots.py` | Correlation heatmaps, confusion matrices, per-env and 3-in-1 ranking bar plots → `output/stats and plots/`. |
+| **3** | `python scripts/run_wilcoxon_stats.py` | Wilcoxon tests (each baseline vs stacked ensemble) → `output/{Env}_stats_main_vs_baselines_all_metrics.csv` per environment. |
+| **4** | `python scripts/make_scie_figures.py --env all` | Residual boxplots, feature stability, average ranks, Wilcoxon p-value plots → `output/scie_figures/`. |
+| **5** | `python scripts/plot_pred_vs_obs.py` | Predicted vs observed TSV scatter plots → `output/predicted vs observed/`. |
+
+Optional: `python scripts/run_loeo_generalizability.py` (LOEO metrics + plots), `python scripts/run_ablations.py` (ablations under `output/ablations/`), `python scripts/run_stacker_sweep.py` (meta-learner sweep).
+
+---
+
 **A) Main ensemble only**
 ```bash
 python run_main_pipeline.py
@@ -144,11 +160,14 @@ python scripts/run_stacker_sweep.py
 
 **E) Additional Analysis Scripts**
 ```bash
-# Generate SCIE figures
-python scripts/make_scie_figures.py --env all
-
-# Run statistical tests and generate plots
+# Run statistical tests and generate plots (correlations, confusion matrices, rankings)
 python scripts/run_stats_and_plots.py
+
+# Compute Wilcoxon stats vs stacked ensemble (required for SCIE Wilcoxon figures)
+python scripts/run_wilcoxon_stats.py
+
+# Generate SCIE figures (residuals, feature stability, ranks, Wilcoxon p-values)
+python scripts/make_scie_figures.py --env all
 
 # Generate predicted vs observed plots
 python scripts/plot_pred_vs_obs.py

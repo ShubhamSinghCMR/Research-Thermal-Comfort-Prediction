@@ -19,6 +19,20 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+# High‑resolution defaults for clearer scatter plots
+plt.rcParams.update(
+    {
+        "figure.dpi": 120,
+        "savefig.dpi": 400,
+        "font.size": 11,
+        "axes.titlesize": 13,
+        "axes.labelsize": 11,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+    }
+)
+
 
 def _r2_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     y_true = np.asarray(y_true, dtype=float)
@@ -54,9 +68,9 @@ def make_plot(env_label: str,
               out_path: Path,
               clip_min: float = -3.0,
               clip_max: float = 3.0,
-              point_size: int = 8,
+              point_size: int = 12,
               alpha: float = 0.6,
-              dpi: int = 300) -> None:
+              dpi: int = 400) -> None:
     """
     Create a Predicted vs Observed TSV scatter plot for one environment.
     """
@@ -99,9 +113,9 @@ def make_plot(env_label: str,
         rmse, mae, r2 = 0.841, 0.659, 0.516
 
     # Plot
-    plt.figure(figsize=(6, 6))
+    plt.figure(figsize=(6.8, 6.8))
     plt.scatter(y_true, y_pred, s=point_size, alpha=alpha)
-    plt.plot([clip_min, clip_max], [clip_min, clip_max])
+    plt.plot([clip_min, clip_max], [clip_min, clip_max], color="black", linewidth=1.2)
     plt.xlim(clip_min, clip_max)
     plt.ylim(clip_min, clip_max)
     plt.xlabel("Observed TSV")
@@ -124,6 +138,8 @@ def make_plot(env_label: str,
     plt.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=dpi)
+    pdf_out = out_path.with_suffix(".pdf")
+    plt.savefig(pdf_out)
     plt.close()
 
 
@@ -133,9 +149,9 @@ def main():
                         help="Directory where predictions CSVs are located and where figures will be saved.")
     parser.add_argument("--clip-min", default=-3.0, type=float, help="Lower clip bound for TSV.")
     parser.add_argument("--clip-max", default=3.0, type=float, help="Upper clip bound for TSV.")
-    parser.add_argument("--point-size", default=8, type=int, help="Scatter point size.")
+    parser.add_argument("--point-size", default=12, type=int, help="Scatter point size.")
     parser.add_argument("--alpha", default=0.6, type=float, help="Scatter point alpha.")
-    parser.add_argument("--dpi", default=300, type=int, help="Figure DPI.")
+    parser.add_argument("--dpi", default=400, type=int, help="Figure DPI.")
     args = parser.parse_args()
 
     outdir = Path(args.output_dir)

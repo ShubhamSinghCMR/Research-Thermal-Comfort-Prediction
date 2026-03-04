@@ -10,6 +10,20 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
+# High‑resolution, publication‑oriented defaults
+matplotlib.rcParams.update(
+    {
+        "figure.dpi": 120,
+        "savefig.dpi": 400,
+        "font.size": 11,
+        "axes.titlesize": 13,
+        "axes.labelsize": 11,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+    }
+)
+
 import sys
 from typing import Dict
 from sklearn.linear_model import LinearRegression, Ridge, Lasso
@@ -104,10 +118,12 @@ def _nice_barh(ax, labels, values, metric, title=None, xshare=None):
 def _plot_ranked(values_dict, title, metric, out_png: Path):
     items = sorted(values_dict.items(), key=lambda kv: kv[1], reverse=not LOWER_BETTER[metric])
     labels = [k.replace("_"," ").title() for k,_ in items]; values = [v for _,v in items]
-    fig, ax = plt.subplots(figsize=(12, max(4.2, 0.38*len(labels)+1))); fig.patch.set_facecolor("white")
+    fig, ax = plt.subplots(figsize=(12.5, max(4.5, 0.40 * len(labels) + 1))); fig.patch.set_facecolor("white")
     _nice_barh(ax, labels, values, metric, title)
     fig.tight_layout(pad=2.0); plt.subplots_adjust(left=0.35, right=0.95, top=0.90, bottom=0.15)
-    fig.savefig(out_png, dpi=260); plt.close(fig)
+    fig.savefig(out_png, dpi=400)
+    fig.savefig(out_png.with_suffix(".pdf"))
+    plt.close(fig)
 
 def get_models() -> Dict[str, object]:
     M = {}

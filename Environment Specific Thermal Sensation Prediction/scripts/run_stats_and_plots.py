@@ -13,6 +13,20 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 from scipy import stats
 
+# High‑resolution, publication‑oriented defaults
+matplotlib.rcParams.update(
+    {
+        "figure.dpi": 120,
+        "savefig.dpi": 400,
+        "font.size": 11,
+        "axes.titlesize": 13,
+        "axes.labelsize": 11,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+    }
+)
+
 import sys
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -100,10 +114,12 @@ def _nice_barh(ax, labels, values, metric, add_title=None, xshare=None):
 def _plot_ranked(values_dict, title, metric, out_png: Path):
     items = sorted(values_dict.items(), key=lambda kv: kv[1], reverse=not LOWER_BETTER[metric])
     labels = [_format_model_label(k) for k,_ in items]; values = [v for _,v in items]
-    fig, ax = plt.subplots(figsize=(12, max(4.2, 0.38*len(labels)+1))); fig.patch.set_facecolor("white")
+    fig, ax = plt.subplots(figsize=(12.5, max(4.5, 0.40 * len(labels) + 1))); fig.patch.set_facecolor("white")
     _nice_barh(ax, labels, values, metric, add_title=title)
     fig.tight_layout(pad=2.0); plt.subplots_adjust(left=0.35, right=0.95, top=0.90, bottom=0.15)
-    fig.savefig(out_png, dpi=260); plt.close(fig)
+    fig.savefig(out_png, dpi=400)
+    fig.savefig(out_png.with_suffix(".pdf"))
+    plt.close(fig)
 
 def plot_correlation(df_num: pd.DataFrame, out_png: Path, out_r: Path, out_p: Path):
     cols = df_num.columns; n = len(cols)
@@ -127,7 +143,9 @@ def plot_correlation(df_num: pd.DataFrame, out_png: Path, out_r: Path, out_p: Pa
     ax.set_title("Pearson correlation (× = not significant at FDR 5%)")
     cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04); cb.set_label("r")
     fig.tight_layout(pad=2.0); plt.subplots_adjust(left=0.18, right=0.92, top=0.92, bottom=0.18)
-    fig.savefig(out_png, dpi=260); plt.close(fig)
+    fig.savefig(out_png, dpi=400)
+    fig.savefig(out_png.with_suffix(".pdf"))
+    plt.close(fig)
 
 def load_env_dataframe(env_name: str) -> pd.DataFrame:
     if get_all_sheet_names and load_environment_sheet: return load_environment_sheet(env_name)
@@ -162,7 +180,9 @@ def _plot_confusion_matrix(y_true_cls, y_pred_cls, labels, title, out_png: Path)
     f1 = f1_score(y_true_cls, y_pred_cls, average="macro", zero_division=0)
     ax.set_title(f"{title}\nAcc={acc:.3f} | Prec={prec:.3f} | Recall={rec:.3f} | F1={f1:.3f}")
     fig.tight_layout(pad=2.0); plt.subplots_adjust(left=0.16, right=0.92, top=0.90, bottom=0.12)
-    fig.savefig(out_png, dpi=260); plt.close(fig)
+    fig.savefig(out_png, dpi=400)
+    fig.savefig(out_png.with_suffix(".pdf"))
+    plt.close(fig)
 
 def main():
     _ensure_dir(PLOTS_ROOT)
@@ -260,7 +280,10 @@ def main():
                 _nice_barh(axes[i], labels, values, metric, add_title=env, xshare=xshare)
             # fig.suptitle(f"Per‑environment model rankings — {metric}", fontsize=14)
             fig.tight_layout(pad=2.0); plt.subplots_adjust(left=0.08, right=0.98, top=0.90, bottom=0.10, wspace=0.35)
-            fig.savefig(PLOTS_ROOT / f"cv_summary_3in1_env_rankings_{metric}_02.png", dpi=260); plt.close(fig)
+            png_path = PLOTS_ROOT / f"cv_summary_3in1_env_rankings_{metric}_02.png"
+            fig.savefig(png_path, dpi=400)
+            fig.savefig(png_path.with_suffix(".pdf"))
+            plt.close(fig)
 
 if __name__ == "__main__":
     main()
