@@ -47,8 +47,18 @@ PLOTS_ROOT = OUTPUT_DIR / "stats and plots"
 DATA_XLSX = PROJECT_ROOT / "dataset" / "input_dataset.xlsx"
 
 STACKED_TAG = "stacked_ensemble"
-METRICS = ["RMSE", "MAE", "R2", "Accuracy"]
-LOWER_BETTER = {"RMSE": True, "MAE": True, "R2": False, "Accuracy": False}
+# All metrics reported in manuscript: continuous (RMSE, MAE, R²) and ordinal (Accuracy, Kappa_quadratic, Kendall_tau_b)
+METRICS = ["RMSE", "MAE", "R2", "Accuracy", "Kappa_quadratic", "Kendall_tau_b"]
+LOWER_BETTER = {
+    "RMSE": True, "MAE": True, "R2": False, "Accuracy": False,
+    "Kappa_quadratic": False, "Kendall_tau_b": False,
+}
+# Display labels for plot titles/axes (optional; column name used if missing)
+METRIC_LABELS = {
+    "R2": "R²",
+    "Kappa_quadratic": "Quadratic Kappa",
+    "Kendall_tau_b": "Kendall's τ",
+}
 
 def _ensure_dir(p: Path): p.mkdir(parents=True, exist_ok=True)
 
@@ -96,7 +106,8 @@ def _nice_barh(ax, labels, values, metric, add_title=None, xshare=None):
     ax.set_yticks(y); ax.set_yticklabels(labels); ax.invert_yaxis()
     ax.grid(axis="x", alpha=0.25, linestyle="--")
     better = "lower" if LOWER_BETTER.get(metric, True) else "higher"
-    ax.set_xlabel(f"{metric} ({better} is better)")
+    label = METRIC_LABELS.get(metric, metric)
+    ax.set_xlabel(f"{label} ({better} is better)")
 
     if values:
         xmin, xmax = _compute_xlim(values, metric)
@@ -112,7 +123,8 @@ def _nice_barh(ax, labels, values, metric, add_title=None, xshare=None):
     ax.margins(x=0.03, y=0.03)
 
 def _plot_ranked(values_dict, title, metric, out_png: Path):
-    items = sorted(values_dict.items(), key=lambda kv: kv[1], reverse=not LOWER_BETTER[metric])
+    lb = LOWER_BETTER.get(metric, True)
+    items = sorted(values_dict.items(), key=lambda kv: kv[1], reverse=not lb)
     labels = [_format_model_label(k) for k,_ in items]; values = [v for _,v in items]
     fig, ax = plt.subplots(figsize=(12.5, max(4.5, 0.40 * len(labels) + 1))); fig.patch.set_facecolor("white")
     _nice_barh(ax, labels, values, metric, add_title=title)
@@ -195,7 +207,9 @@ def main():
         return
         
     df_ranked = pd.read_csv(ranked_csv)
-    
+    # Use environment names exactly as in the ranked CSV so all metrics and ranking figures align
+    envs = df_ranked["Environment"].unique().tolist()
+
     # correlation per environment - using the same prediction files as ranked comparison
     for env in envs:
         env_tag = env.replace(" ", "_")
@@ -261,20 +275,23 @@ def main():
         except Exception as e:
             print(f"[WARN] Confusion matrix skipped for {env}: {e}")
 
-    # per-env rankings and 3-in-1
+    # per-env rankings and 3-in-1 (for the three building environments only)
+    building_envs = ["Classroom", "Hostel", "Workshop or laboratory"]
     for metric in METRICS:
         envs_present = [e for e in envs if e in env_metric_maps[metric]]
         for env in envs_present:
             env_tag = env.replace(" ", "_")
-            _plot_ranked(env_metric_maps[metric][env], f"Model ranking by {metric} — {env}", metric,
+            _plot_ranked(env_metric_maps[metric][env],
+                         f"Model ranking by {METRIC_LABELS.get(metric, metric)} — {env}", metric,
                          PLOTS_ROOT / f"{env_tag}_ranking_{metric}.png")
-        if len(envs_present) == 3:
+        envs_3 = [e for e in building_envs if e in env_metric_maps[metric]]
+        if len(envs_3) == 3:
             # compute shared xmax using robust padding across all values
             all_vals = []
-            for e in envs_present: all_vals.extend(list(env_metric_maps[metric][e].values()))
+            for e in envs_3: all_vals.extend(list(env_metric_maps[metric][e].values()))
             _, xshare = _compute_xlim(all_vals, metric)
             fig, axes = plt.subplots(1, 3, figsize=(21, 6)); fig.patch.set_facecolor("white")
-            for i, env in enumerate(envs_present):
+            for i, env in enumerate(envs_3):
                 items = sorted(env_metric_maps[metric][env].items(), key=lambda kv: kv[1], reverse=not LOWER_BETTER[metric])
                 labels = [_format_model_label(k) for k,_ in items]; values = [v for _,v in items]
                 _nice_barh(axes[i], labels, values, metric, add_title=env, xshare=xshare)

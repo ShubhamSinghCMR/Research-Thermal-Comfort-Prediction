@@ -60,6 +60,14 @@ PROJECT = os.path.dirname(HERE)
 OUT_DIR = os.path.join(PROJECT, "output")
 PLOTS_DIR = os.path.join(OUT_DIR, "scie_figures/")
 
+# All metrics for per-metric ranking figures (must match comparison_all_models_ranked.csv columns)
+METRICS = ["RMSE", "MAE", "R2", "Accuracy", "Kappa_quadratic", "Kendall_tau_b"]
+LOWER_BETTER = {
+    "RMSE": True, "MAE": True, "R2": False, "Accuracy": False,
+    "Kappa_quadratic": False, "Kendall_tau_b": False,
+}
+METRIC_LABELS = {"R2": "R²", "Kappa_quadratic": "Quadratic Kappa", "Kendall_tau_b": "Kendall's τ"}
+
 def _ensure_dir(p):
     os.makedirs(p, exist_ok=True)
 
@@ -177,6 +185,38 @@ def plot_average_ranks(env):
     plt.close()
     print(f"[ok] Saved {out}")
 
+def plot_ranking_by_metric(env, metric):
+    """Plot per-environment model ranking for one metric (RMSE, MAE, R2, Accuracy, Kappa_quadratic, Kendall_tau_b)."""
+    fn = os.path.join(OUT_DIR, "comparison_all_models_ranked.csv")
+    if not os.path.exists(fn):
+        return
+    df = pd.read_csv(fn)
+    env_name = env if env != "Workshop_or_laboratory" else "Workshop or laboratory"
+    sub = df[df["Environment"] == env_name]
+    if sub.empty:
+        sub = df[df["Environment"].str.replace(" ", "_").str.replace("/", "_").str.lower() == env.lower()]
+    if sub.empty or metric not in sub.columns:
+        return
+    sub = sub[["Model", metric]].sort_values(metric, ascending=LOWER_BETTER.get(metric, True))
+    labels = sub["Model"].tolist()
+    values = sub[metric].tolist()
+    label = METRIC_LABELS.get(metric, metric)
+    better = "lower" if LOWER_BETTER.get(metric, True) else "higher"
+    plt.figure(figsize=(10.5, max(4.5, 0.40 * len(labels))))
+    y_pos = np.arange(len(labels))
+    plt.barh(y_pos, values)
+    plt.yticks(y_pos, labels)
+    plt.gca().invert_yaxis()
+    plt.xlabel(f"{label} ({better} is better)")
+    plt.title(f"Model ranking by {label} — {env_name}")
+    _ensure_dir(PLOTS_DIR)
+    out = os.path.join(PLOTS_DIR, f"{env.replace(' ', '_')}_ranking_{metric}.png")
+    plt.tight_layout()
+    plt.savefig(out, dpi=400)
+    plt.savefig(out.replace(".png", ".pdf"))
+    plt.close()
+    print(f"[ok] Saved {out}")
+
 def plot_wilcoxon(env, alpha=0.05):
     fn = os.path.join(OUT_DIR, f"{env}_stats_main_vs_baselines_all_metrics.csv")
     if not os.path.exists(fn):
@@ -226,6 +266,8 @@ def main():
         plot_residual_boxplots(env)
         plot_feature_stability(env, top_k=args.top_k)
         plot_average_ranks(env)
+        for m in METRICS:
+            plot_ranking_by_metric(env, m)
         plot_wilcoxon(env, alpha=args.alpha)
 
 if __name__ == "__main__":
