@@ -9,22 +9,22 @@ def _bin_stratify_targets(y: np.ndarray, n_bins: int = 7):
         edges = np.linspace(y.min(), y.max(), n_bins + 1)
     return np.digitize(y, edges[1:-1], right=True)
 
-def _fit_ridge_blender(P, y, alphas):
+def _fit_ridge_blender(P, y, alphas, sample_weight=None):
     from sklearn.linear_model import RidgeCV
     mu, sig = P.mean(axis=0), P.std(axis=0) + 1e-9
     Pz = (P - mu) / sig
     ridge = RidgeCV(alphas=alphas, fit_intercept=True, cv=5)
-    ridge.fit(Pz, y)
+    ridge.fit(Pz, y, sample_weight=sample_weight)
     return {"type": "ridge", "model": ridge, "mu": mu, "sig": sig}
 
 def _predict_ridge_blender(model_dict, P):
     ridge, mu, sig = model_dict["model"], model_dict["mu"], model_dict["sig"]
     return ridge.predict((P - mu) / sig)
 
-def _fit_nnls_blender(P, y):
+def _fit_nnls_blender(P, y, sample_weight=None):
     from sklearn.linear_model import LinearRegression
     lr = LinearRegression(positive=True)
-    lr.fit(P, y)
+    lr.fit(P, y, sample_weight=sample_weight)
     w = lr.coef_.clip(min=0)
     s = w.sum() if w.sum() > 0 else 1.0
     return {"type": "nnls", "w": (w / s), "b": lr.intercept_}
@@ -40,12 +40,12 @@ def _fit_avg_blender(P, y):
 def _predict_avg_blender(model_dict, P):
     return P @ model_dict["w"]
 
-def _fit_lgbm_meta(P, y, env_params):
+def _fit_lgbm_meta(P, y, env_params, sample_weight=None):
     import lightgbm as lgb
     lgb_params = env_params['lightgbm'].copy()
     lgb_params.setdefault('objective', 'huber')
     model = lgb.LGBMRegressor(**lgb_params)
-    model.fit(P, y, callbacks=[lgb.log_evaluation(period=0)])
+    model.fit(P, y, sample_weight=sample_weight, callbacks=[lgb.log_evaluation(period=0)])
     return {"type": "lgbm", "model": model}
 
 def _predict_lgbm_meta(model_dict, P):
@@ -66,17 +66,18 @@ def _cv_splits(y, n_splits=5, n_repeats=1, random_state=42, stratify_bins=0):
             splits += list(kf.split(y))
     return splits
 
-def _evaluate_cv(P, y, fit_fn, pred_fn, splits, eval_fn):
+def _evaluate_cv(P, y, fit_fn, pred_fn, splits, eval_fn, sample_weight=None):
     oof = np.zeros(len(y))
     fold_metrics = []
     for tr, va in splits:
-        mdl = fit_fn(P[tr], y[tr])
+        wtr = sample_weight[tr] if sample_weight is not None else None
+        mdl = fit_fn(P[tr], y[tr], sample_weight=wtr)
         yp = pred_fn(mdl, P[va])
         oof[va] = yp
         fold_metrics.append(eval_fn(pd.Series(y[va]), pd.Series(yp)))
     return oof, fold_metrics
 
-def train_meta_model_kfold(oof_preds, y, env_params, n_splits=5):
+def train_meta_model_kfold(oof_preds, y, env_params, n_splits=5, sample_weight=None):
     """Train a meta-learner on OOF base predictions.
 
     Supports STACKING_METHOD in config: 'ridge', 'nnls', 'avg', 'lgbm'.
@@ -102,13 +103,13 @@ def train_meta_model_kfold(oof_preds, y, env_params, n_splits=5):
 
     def make_runner(method):
         if method == "ridge":
-            return (lambda X, yy: _fit_ridge_blender(X, yy, META_RIDGE_ALPHAS), _predict_ridge_blender)
+            return (lambda X, yy, sample_weight=None: _fit_ridge_blender(X, yy, META_RIDGE_ALPHAS, sample_weight=sample_weight), _predict_ridge_blender)
         if method == "nnls":
             return (_fit_nnls_blender, _predict_nnls_blender)
         if method == "avg":
-            return (_fit_avg_blender, _predict_avg_blender)
+            return (lambda X, yy, sample_weight=None: _fit_avg_blender(X, yy), _predict_avg_blender)
         if method == "lgbm":
-            return (lambda X, yy: _fit_lgbm_meta(X, yy, env_params), _predict_lgbm_meta)
+            return (lambda X, yy, sample_weight=None: _fit_lgbm_meta(X, yy, env_params, sample_weight=sample_weight), _predict_lgbm_meta)
         raise ValueError(f"Unknown STACKING method: {method}")
 
     methods_to_try = STACKER_CANDIDATES if AUTO_SELECT_STACKER else [STACKING_METHOD]
@@ -117,13 +118,13 @@ def train_meta_model_kfold(oof_preds, y, env_params, n_splits=5):
     results = {}
     for m in methods_to_try:
         fit_fn, pred_fn = make_runner(m)
-        oof, fold_metrics = _evaluate_cv(P, y_arr, fit_fn, pred_fn, splits, eval_fn=evaluate_predictions)
+        oof, fold_metrics = _evaluate_cv(P, y_arr, fit_fn, pred_fn, splits, eval_fn=evaluate_predictions, sample_weight=sample_weight)
         avg_metrics = {k: float(np.mean([fm[k] for fm in fold_metrics])) for k in fold_metrics[0]}
         results[m] = {"oof": oof, "metrics": avg_metrics}
         if (best is None) or (avg_metrics.get("R2", -1e9) > best["metrics"].get("R2", -1e9)):
             best = {"method": m, "oof": oof, "metrics": avg_metrics, "fit_fn": fit_fn, "pred_fn": pred_fn}
 
-    final_model = best["fit_fn"](P, y_arr)
+    final_model = best["fit_fn"](P, y_arr, sample_weight=sample_weight)
 
     # Feature importances for linear methods are absolute weights; for others, fallback
     try:

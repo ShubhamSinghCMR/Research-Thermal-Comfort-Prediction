@@ -6,6 +6,7 @@ from joblib import dump
 
 from features.feature_engineering import get_all_sheet_names, load_environment_sheet
 from utils.config import get_environment_params, USE_STACKING, CALIBRATION_ON
+from utils.preprocess import add_environment_interactions
 from utils.metrics import evaluate_predictions
 from utils.calibration import compute_bias_and_qhat, apply_calibration
 from models.base_models import train_base_models
@@ -17,12 +18,26 @@ OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "output")
 def ensure_output():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+TARGET_COLUMN = "Given Final TSV"
+# Columns to exclude from features in all sheets (target + index-like columns)
+EXCLUDE_FROM_FEATURES = (TARGET_COLUMN, "Sr. No.", "Sr No.", "Sr No", "S.No.", "S No.", "Sr.No.")
+
+def _is_excluded_column(col):
+    col = str(col).strip()
+    if col in EXCLUDE_FROM_FEATURES:
+        return True
+    # Normalize: lower, collapse spaces so "Sr.  No." / "SR NO" / "Sr.No." etc. match
+    n = " ".join(col.lower().split())
+    if n in ("sr. no.", "sr no.", "sr no", "s.no.", "s no.", "sr.no."):
+        return True
+    if n.replace(".", "").replace(" ", "") == "srno":
+        return True
+    return False
+
 def extract_Xy(df, sheet):
-    base_numeric = ['RATemp', 'MRT', 'Top', 'Air Velo', 'RH']
-    base_cats = ['Season', 'Clothing', 'Activity']
-    # Combined environment uses same features as Classroom (numeric only)
-    feats = [c for c in (base_numeric if sheet in ["Classroom", "Combined"] else base_numeric + base_cats) if c in df.columns]
-    target = "Given Final TSV"
+    # Use all columns in the sheet as candidate features; selection will pick top features per model.
+    feats = [c for c in df.columns if not _is_excluded_column(c)]
+    target = TARGET_COLUMN
     if target not in df.columns:
         raise ValueError(f"Target '{target}' not found in sheet '{sheet}'")
     X = df[feats].copy()
@@ -39,9 +54,26 @@ def main():
         print(f"\n=== Processing Environment: {sheet} ===")
         df = load_environment_sheet(sheet)
         X, y = extract_Xy(df, sheet)
+        X = add_environment_interactions(X)
         env_params = get_environment_params(sheet)
 
-        oof_preds, base_results, selection_reports, selected_features = train_base_models(X, y, env_params)
+        if "Environment" in X.columns and X["Environment"].nunique() > 1:
+            env_counts = X["Environment"].value_counts()
+            sample_weight = (1.0 / X["Environment"].map(env_counts)).to_numpy(dtype=float)
+        else:
+            sample_weight = None
+
+        print("INITIAL FEATURES")
+        print(list(X.columns))
+
+        oof_preds, base_results, selection_reports, selected_features = train_base_models(X, y, env_params, sample_weight=sample_weight)
+
+        print("TOP FEATURES USED IN TRAINING")
+        all_top = set()
+        for m, feats in selected_features.items():
+            all_top.update(feats)
+            print(f"  {m}: {feats}")
+        print(f"  (union: {sorted(all_top)})")
 
         for m, rep in selection_reports.items():
             rep_path = os.path.join(OUTPUT_DIR, f"{sheet.replace(' ','_')}_{m}_selected_features.csv")
@@ -54,7 +86,7 @@ def main():
         y_series = pd.Series(y).reset_index(drop=True)
 
         if USE_STACKING:
-            meta = train_meta_model_kfold(oof_preds, y_series, env_params)
+            meta = train_meta_model_kfold(oof_preds, y_series, env_params, sample_weight=sample_weight)
             oof_meta = meta['oof_predictions']
 
             fi_path = os.path.join(OUTPUT_DIR, f"{sheet.replace(' ','_')}_meta_feature_importance.csv")
@@ -63,7 +95,7 @@ def main():
             if 'objective' not in lgb_params:
                 lgb_params['objective'] = 'huber'
             meta_full = lgb.LGBMRegressor(**lgb_params)
-            meta_full.fit(oof_preds, y_series)
+            meta_full.fit(oof_preds, y_series, sample_weight=sample_weight)
             model_path = os.path.join(OUTPUT_DIR, f"{sheet.replace(' ','_')}_meta_model.joblib")
             dump(meta_full, model_path)
             y_pred = oof_meta
@@ -115,7 +147,7 @@ def main():
         summary_path = os.path.join(OUTPUT_DIR, "predicted_tsv_results.csv")
         summary_df.to_csv(summary_path, index=False)
         print(f"\n=== Summary saved → {summary_path} ===")
-        print(summary_df)
+        print(summary_df.to_string())
 
 if __name__ == "__main__":
     main()

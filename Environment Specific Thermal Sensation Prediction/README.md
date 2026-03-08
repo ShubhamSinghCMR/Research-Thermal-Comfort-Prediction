@@ -93,18 +93,47 @@ Configurable in `utils/config.py` (`BASELINE_MODELS`). Defaults include:
 
 ## 4) Installation
 
+**Project root** = the folder that contains `run_main_pipeline.py`, i.e. `Environment Specific Thermal Sensation Prediction`. If you cloned the repo, go there first: `cd "Environment Specific Thermal Sensation Prediction"`.
+
 ```bash
-# Create & activate virtual environment (Windows PowerShell)
+# Create & activate virtual environment
+# Windows PowerShell:  .\venv\Scripts\Activate.ps1
+# macOS/Linux:         source venv/bin/activate
 python -m venv venv
-.env\Scripts\Activate.ps1
+.venv\Scripts\Activate.ps1
 
 # Install dependencies
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
+
+If `requirements.txt` is not present, install core dependencies manually:
+
+```bash
+pip install pandas numpy scikit-learn scipy matplotlib openpyxl joblib xgboost lightgbm catboost
+```
+
 ---
 
 ## 5) Execution
+
+All commands must be run from the **project root** (the directory that contains `run_main_pipeline.py` and the `scripts/` folder). Input data is read from `dataset/input_dataset.xlsx` relative to this directory.
+
+### Recommended sequence (full pipeline)
+
+Run in this order:
+
+| Step | Command | What it generates |
+|------|---------|--------------------|
+| **1** | `python scripts/run_full_comparison.py` | Runs main ensemble + all baselines; writes per-env `{Env}_predictions.csv`, `{Env}_metrics.csv`, `{Env}_{model}_*`; global `comparison_all_models.csv`, `comparison_all_models_ranked.csv`, `baselines_comparison.csv`, `predicted_tsv_results.csv`. |
+| **2** | `python scripts/run_stats_and_plots.py` | Correlation heatmaps, confusion matrices, per-env and 3-in-1 ranking bar plots → `output/stats and plots/`. |
+| **3** | `python scripts/run_wilcoxon_stats.py` | Wilcoxon tests (each baseline vs stacked ensemble) → `output/{Env}_stats_main_vs_baselines_all_metrics.csv` per environment. |
+| **4** | `python scripts/make_scie_figures.py --env all` | Residual boxplots, feature stability, average ranks, Wilcoxon p-value plots → `output/scie_figures/`. |
+| **5** | `python scripts/plot_pred_vs_obs.py` | Predicted vs observed TSV scatter plots → `output/predicted vs observed/`. |
+
+Optional: `python scripts/run_loeo_generalizability.py` (LOEO metrics + plots), `python scripts/run_ablations.py` (ablations under `output/ablations/`), `python scripts/run_stacker_sweep.py` (meta-learner sweep), `python scripts/run_friedman_test.py` (Friedman test → `output/friedman_test_results.csv`).
+
+---
 
 **A) Main ensemble only**
 ```bash
@@ -125,6 +154,8 @@ export FORCE_STACKER_METHOD=nnls; python run_main_pipeline.py; unset FORCE_STACK
 ```bash
 python scripts/run_full_comparison.py
 ```
+Optionally force stacker: `python scripts/run_full_comparison.py --stacker ridge`
+
 This will:
 1) run the ensemble,
 2) run all baselines,
@@ -137,30 +168,37 @@ This will:
 python scripts/run_baselines.py
 ```
 
-**D) Meta‑learner sweep (optional)**
+**D) Meta‑learner sweep (optional)** — runs the main pipeline once per stacker candidate (ridge, nnls, avg, lgbm).
 ```bash
 python scripts/run_stacker_sweep.py
 ```
 
-**E) Additional Analysis Scripts**
+**E) Additional analysis scripts**
 ```bash
-# Generate SCIE figures
-python scripts/make_scie_figures.py --env all
-
-# Run statistical tests and generate plots
+# Run statistical tests and generate plots (correlations, confusion matrices, rankings)
 python scripts/run_stats_and_plots.py
+
+# Compute Wilcoxon stats vs stacked ensemble (required for SCIE Wilcoxon figures)
+python scripts/run_wilcoxon_stats.py
+
+# Generate SCIE figures (residuals, feature stability, ranks, Wilcoxon p-values)
+# Use --env Classroom, --env Hostel, --env "Workshop_or_laboratory", or --env all
+python scripts/make_scie_figures.py --env all
 
 # Generate predicted vs observed plots
 python scripts/plot_pred_vs_obs.py
 
-# Run ablation studies
+# Run ablation studies (writes to output/ablations/)
 python scripts/run_ablations.py
 
 # Run leave-one-environment-out generalizability tests
 python scripts/run_loeo_generalizability.py
+
+# Friedman test per environment (writes output/friedman_test_results.csv)
+python scripts/run_friedman_test.py
 ```
 
-> **Run from the project root** (the folder that contains `run_main_pipeline.py`).
+> **Working directory**: always the project root (folder containing `run_main_pipeline.py`). From the repo root, run `cd "Environment Specific Thermal Sensation Prediction"` first.
 
 ---
 

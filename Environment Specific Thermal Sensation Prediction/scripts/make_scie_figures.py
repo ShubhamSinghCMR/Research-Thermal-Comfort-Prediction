@@ -41,10 +41,32 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+# Slightly larger fonts and high-resolution output for publication-quality figures
+plt.rcParams.update(
+    {
+        "figure.dpi": 120,
+        "savefig.dpi": 400,
+        "font.size": 11,
+        "axes.titlesize": 13,
+        "axes.labelsize": 11,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+    }
+)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROJECT = os.path.dirname(HERE)
 OUT_DIR = os.path.join(PROJECT, "output")
 PLOTS_DIR = os.path.join(OUT_DIR, "scie_figures/")
+
+# All metrics for per-metric ranking figures (must match comparison_all_models_ranked.csv columns)
+METRICS = ["RMSE", "MAE", "R2", "Accuracy", "Kappa_quadratic", "Kendall_tau_b"]
+LOWER_BETTER = {
+    "RMSE": True, "MAE": True, "R2": False, "Accuracy": False,
+    "Kappa_quadratic": False, "Kendall_tau_b": False,
+}
+METRIC_LABELS = {"R2": "R²", "Kappa_quadratic": "Quadratic Kappa", "Kendall_tau_b": "Kendall's τ"}
 
 def _ensure_dir(p):
     os.makedirs(p, exist_ok=True)
@@ -72,7 +94,7 @@ def plot_residual_boxplots(env):
             r = np.array([np.nan])
         groups.append(r)
         labels.append(str(cls))
-    plt.figure(figsize=(8,5))
+    plt.figure(figsize=(8.5, 5.5))
     plt.boxplot(groups, labels=labels, showfliers=False)
     plt.axhline(0.0, linestyle="--", linewidth=1)
     plt.xlabel("True TSV (rounded classes)")
@@ -81,7 +103,9 @@ def plot_residual_boxplots(env):
     _ensure_dir(PLOTS_DIR)
     out = os.path.join(PLOTS_DIR, f"{env}_residual_boxplots_02.png")
     plt.tight_layout()
-    plt.savefig(out, dpi=300)
+    plt.savefig(out, dpi=400)
+    pdf_out = out.replace(".png", ".pdf")
+    plt.savefig(pdf_out)
     plt.close()
     print(f"[ok] Saved {out}")
 
@@ -120,14 +144,16 @@ def plot_feature_stability(env, top_k=20):
     df = pd.concat(rows, ignore_index=True)
     agg = df.groupby("Feature", as_index=False)["freq"].sum().sort_values("freq", ascending=False)
     top = agg.head(top_k)
-    plt.figure(figsize=(10, max(4, 0.35*len(top))))
+    plt.figure(figsize=(10.5, max(4.5, 0.40 * len(top))))
     plt.barh(top["Feature"][::-1], top["freq"][::-1])
     plt.xlabel("Selection Frequency (sum across models/folds)")
     plt.title(f"Feature Stability — {env}")
     _ensure_dir(PLOTS_DIR)
     out = os.path.join(PLOTS_DIR, f"{env}_feature_stability.png")
     plt.tight_layout()
-    plt.savefig(out, dpi=300)
+    plt.savefig(out, dpi=400)
+    pdf_out = out.replace(".png", ".pdf")
+    plt.savefig(pdf_out)
     plt.close()
     print(f"[ok] Saved {out}")
 
@@ -146,14 +172,48 @@ def plot_average_ranks(env):
         print(f"[skip] No rows in comparison_all_models_ranked for {env}")
         return
     sub = sub[["Model","Rank"]].sort_values("Rank", ascending=True)
-    plt.figure(figsize=(9, max(4, 0.35*len(sub))))
+    plt.figure(figsize=(9.5, max(4.5, 0.40 * len(sub))))
     plt.barh(sub["Model"], sub["Rank"])
     plt.xlabel("Average Rank (lower is better)")
     plt.title(f"Model Ranks — {env}")
     _ensure_dir(PLOTS_DIR)
     out = os.path.join(PLOTS_DIR, f"{env}_average_ranks.png")
     plt.tight_layout()
-    plt.savefig(out, dpi=300)
+    plt.savefig(out, dpi=400)
+    pdf_out = out.replace(".png", ".pdf")
+    plt.savefig(pdf_out)
+    plt.close()
+    print(f"[ok] Saved {out}")
+
+def plot_ranking_by_metric(env, metric):
+    """Plot per-environment model ranking for one metric (RMSE, MAE, R2, Accuracy, Kappa_quadratic, Kendall_tau_b)."""
+    fn = os.path.join(OUT_DIR, "comparison_all_models_ranked.csv")
+    if not os.path.exists(fn):
+        return
+    df = pd.read_csv(fn)
+    env_name = env if env != "Workshop_or_laboratory" else "Workshop or laboratory"
+    sub = df[df["Environment"] == env_name]
+    if sub.empty:
+        sub = df[df["Environment"].str.replace(" ", "_").str.replace("/", "_").str.lower() == env.lower()]
+    if sub.empty or metric not in sub.columns:
+        return
+    sub = sub[["Model", metric]].sort_values(metric, ascending=LOWER_BETTER.get(metric, True))
+    labels = sub["Model"].tolist()
+    values = sub[metric].tolist()
+    label = METRIC_LABELS.get(metric, metric)
+    better = "lower" if LOWER_BETTER.get(metric, True) else "higher"
+    plt.figure(figsize=(10.5, max(4.5, 0.40 * len(labels))))
+    y_pos = np.arange(len(labels))
+    plt.barh(y_pos, values)
+    plt.yticks(y_pos, labels)
+    plt.gca().invert_yaxis()
+    plt.xlabel(f"{label} ({better} is better)")
+    plt.title(f"Model ranking by {label} — {env_name}")
+    _ensure_dir(PLOTS_DIR)
+    out = os.path.join(PLOTS_DIR, f"{env.replace(' ', '_')}_ranking_{metric}.png")
+    plt.tight_layout()
+    plt.savefig(out, dpi=400)
+    plt.savefig(out.replace(".png", ".pdf"))
     plt.close()
     print(f"[ok] Saved {out}")
 
@@ -173,7 +233,7 @@ def plot_wilcoxon(env, alpha=0.05):
     idx = np.where(sub["p_raw"].values <= holm)[0]
     ref = holm[idx.max()] if idx.size > 0 else 0.0
 
-    plt.figure(figsize=(10, 5 + 0.2*m))
+    plt.figure(figsize=(10.5, 5.5 + 0.22 * m))
     plt.bar(range(m), sub["p_raw"].values)
     plt.xticks(range(m), sub["Baseline"].values, rotation=45, ha="right")
     plt.axhline(ref, linestyle="--", linewidth=1)
@@ -182,7 +242,9 @@ def plot_wilcoxon(env, alpha=0.05):
     _ensure_dir(PLOTS_DIR)
     out = os.path.join(PLOTS_DIR, f"{env}_wilcoxon_pvalues_02.png")
     plt.tight_layout()
-    plt.savefig(out, dpi=300)
+    plt.savefig(out, dpi=400)
+    pdf_out = out.replace(".png", ".pdf")
+    plt.savefig(pdf_out)
     plt.close()
     print(f"[ok] Saved {out}")
 
@@ -204,6 +266,8 @@ def main():
         plot_residual_boxplots(env)
         plot_feature_stability(env, top_k=args.top_k)
         plot_average_ranks(env)
+        for m in METRICS:
+            plot_ranking_by_metric(env, m)
         plot_wilcoxon(env, alpha=args.alpha)
 
 if __name__ == "__main__":

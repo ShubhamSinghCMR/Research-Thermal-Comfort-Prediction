@@ -1,0 +1,6 @@
+feature,importance
+catboost,1.0
+xgboost,0.0
+lightgbm,0.0
+elasticnet,0.0
+svr_rbf,0.0

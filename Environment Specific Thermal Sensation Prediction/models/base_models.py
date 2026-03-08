@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, StratifiedKFold
 
 from catboost import CatBoostRegressor
 from xgboost import XGBRegressor
@@ -13,10 +13,25 @@ from utils.feature_ranking import univariate_scores, permutation_rank
 from utils.selection import stability_selection
 from utils.config import (
     FOLDS, TOP_M_PER_FOLD, STABILITY_TAU, PERM_REPEATS,
-    SELECTION_MODE, SELECTION_SCOPE, KMIN, KMAX
+    SELECTION_MODE, SELECTION_SCOPE, KMIN, KMAX, STRATIFY_BINS
 )
 from lightgbm import LGBMRegressor
 from sklearn.svm import SVR
+
+
+def _get_stratify_labels(y, X_df, n_bins=7):
+    """Stratify by TSV bins; for pooled sheets (multiple environments), stratify by Environment x bin."""
+    y_arr = np.asarray(y, dtype=float)
+    q = np.linspace(0, 1, n_bins + 1)
+    edges = np.unique(np.quantile(y_arr, q))
+    if len(edges) <= 2:
+        edges = np.linspace(np.nanmin(y_arr), np.nanmax(y_arr), n_bins + 1)
+    y_bins = np.digitize(y_arr, edges[1:-1], right=True)
+    if "Environment" in X_df.columns and X_df["Environment"].nunique() > 1:
+        env_vals = X_df["Environment"].astype(str).values
+        return np.array([f"{e}_{b}" for e, b in zip(env_vals, y_bins)])
+    return y_bins
+
 
 def get_base_models_from_params(env_params):
     return {
@@ -36,11 +51,18 @@ def _combine_scores(u_rank, dR2_rank):
         return {f: dR2_rank.get(f, 0.0) for f in set(u_rank.keys()) | set(dR2_rank.keys())}
     return {f: 0.4*u_rank.get(f, 0.0) + 0.6*dR2_rank.get(f, 0.0) for f in set(u_rank.keys()) | set(dR2_rank.keys())}
 
-def train_base_models(X_orig, y, env_params, n_splits=FOLDS, per_model_selection=True):
+def train_base_models(X_orig, y, env_params, n_splits=FOLDS, per_model_selection=True, sample_weight=None):
     X_df = X_orig.copy()
     y = pd.Series(y).reset_index(drop=True)
-    kf = KFold(n_splits=n_splits, shuffle=True,
-               random_state=env_params["lightgbm"].get("random_state", 42))
+    rs = env_params["lightgbm"].get("random_state", 42)
+    n_bins = int(STRATIFY_BINS) if STRATIFY_BINS else 7
+    stratify_labels = _get_stratify_labels(y, X_df, n_bins)
+    try:
+        kf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=rs)
+        splits = list(kf.split(X_df, stratify_labels))
+    except (ValueError, TypeError):
+        kf = KFold(n_splits=n_splits, shuffle=True, random_state=rs)
+        splits = list(kf.split(X_df))
 
     from utils.config import ENSEMBLE_BASE_MODELS
     model_names = ENSEMBLE_BASE_MODELS[:]  # ["catboost","xgboost","lightgbm","elasticnet","svr_rbf"]
@@ -48,7 +70,7 @@ def train_base_models(X_orig, y, env_params, n_splits=FOLDS, per_model_selection
     per_model_fold_scores = {m: [] for m in model_names}
     per_model_stats       = {m: {} for m in model_names}
 
-    for fold, (tr, va) in enumerate(kf.split(X_df, y), 1):
+    for fold, (tr, va) in enumerate(splits, 1):
         Xtr_df = X_df.iloc[tr].reset_index(drop=True)
         Xva_df = X_df.iloc[va].reset_index(drop=True)
         ytr = y.iloc[tr].reset_index(drop=True)
@@ -60,16 +82,18 @@ def train_base_models(X_orig, y, env_params, n_splits=FOLDS, per_model_selection
         u_scores, u_rank = univariate_scores(Xtr_df, ytr, num_cols, cat_cols)
 
         fold_combined_by_model = {}
+        wtr = sample_weight[tr] if sample_weight is not None else None
         for m in model_names:
             model = get_base_models_from_params(env_params)[m]
             if m == "xgboost":
-                model.fit(Xtr_t, ytr, eval_set=[(Xva_t, yva)], verbose=False)
+                model.fit(Xtr_t, ytr, eval_set=[(Xva_t, yva)], verbose=False, sample_weight=wtr)
             elif m == "catboost":
-                model.fit(Xtr_t, ytr, eval_set=(Xva_t, yva), verbose=False)
+                model.fit(Xtr_t, ytr, eval_set=(Xva_t, yva), verbose=False, sample_weight=wtr)
             elif m == "lightgbm":
-                model.fit(Xtr_t, ytr, eval_set=[(Xva_t, yva)])  # uses LGBMRegressor
+                model.fit(Xtr_t, ytr, eval_set=[(Xva_t, yva)], sample_weight=wtr)
             else:
-                model.fit(Xtr_t, ytr)
+                fit_kw = {"sample_weight": wtr} if wtr is not None else {}
+                model.fit(Xtr_t, ytr, **fit_kw)
 
             def predict_fn(Xmat, mdl=model): return mdl.predict(Xmat)
             dR2, dMAE, dACC, dR2_rank = permutation_rank(predict_fn, Xva_t, yva, orig_to_idx, repeats=PERM_REPEATS)
@@ -113,7 +137,7 @@ def train_base_models(X_orig, y, env_params, n_splits=FOLDS, per_model_selection
 
     selected_features = {}
     selection_reports = {}
-    cat_set = set([c for c in ["Season","Clothing","Activity"] if c in X_df.columns])
+    cat_set = set([c for c in ["Season","Clothing","Activity","Environment"] if c in X_df.columns])
 
     for m in model_names:
         pool, freq_map, mean_scores = stability_selection(
@@ -144,7 +168,7 @@ def train_base_models(X_orig, y, env_params, n_splits=FOLDS, per_model_selection
     oof_preds   = pd.DataFrame(0.0, index=np.arange(len(X_df)), columns=model_names)
     base_results = {m: [] for m in model_names}
 
-    for fold, (tr, va) in enumerate(kf.split(X_df, y), 1):
+    for fold, (tr, va) in enumerate(splits, 1):
         Xtr_df = X_df.iloc[tr].reset_index(drop=True)
         Xva_df = X_df.iloc[va].reset_index(drop=True)
         ytr = y.iloc[tr].reset_index(drop=True)
@@ -154,6 +178,7 @@ def train_base_models(X_orig, y, env_params, n_splits=FOLDS, per_model_selection
         Xtr_t_all = transform_fn(Xtr_df)
         Xva_t_all = transform_fn(Xva_df)
 
+        wtr = sample_weight[tr] if sample_weight is not None else None
         for m in model_names:
             model = get_base_models_from_params(env_params)[m]
             feat_set = selected_features[m] if SELECTION_MODE != 'none' else list(X_df.columns)
@@ -162,13 +187,14 @@ def train_base_models(X_orig, y, env_params, n_splits=FOLDS, per_model_selection
             Xva_t = Xva_t_all if len(col_idxs)==0 else Xva_t_all[:, col_idxs]
 
             if m == "xgboost":
-                model.fit(Xtr_t, ytr, eval_set=[(Xva_t, yva)], verbose=False)
+                model.fit(Xtr_t, ytr, eval_set=[(Xva_t, yva)], verbose=False, sample_weight=wtr)
             elif m == "catboost":
-                model.fit(Xtr_t, ytr, eval_set=(Xva_t, yva), verbose=False)
+                model.fit(Xtr_t, ytr, eval_set=(Xva_t, yva), verbose=False, sample_weight=wtr)
             elif m == "lightgbm":
-                model.fit(Xtr_t, ytr, eval_set=[(Xva_t, yva)])
+                model.fit(Xtr_t, ytr, eval_set=[(Xva_t, yva)], sample_weight=wtr)
             else:
-                model.fit(Xtr_t, ytr)
+                fit_kw = {"sample_weight": wtr} if wtr is not None else {}
+                model.fit(Xtr_t, ytr, **fit_kw)
 
             ytr_pred = model.predict(Xtr_t)
             yva_pred = model.predict(Xva_t)

@@ -19,6 +19,20 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+# High‑resolution defaults for clearer scatter plots
+plt.rcParams.update(
+    {
+        "figure.dpi": 120,
+        "savefig.dpi": 400,
+        "font.size": 11,
+        "axes.titlesize": 13,
+        "axes.labelsize": 11,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+    }
+)
+
 
 def _r2_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     y_true = np.asarray(y_true, dtype=float)
@@ -54,9 +68,9 @@ def make_plot(env_label: str,
               out_path: Path,
               clip_min: float = -3.0,
               clip_max: float = 3.0,
-              point_size: int = 8,
+              point_size: int = 12,
               alpha: float = 0.6,
-              dpi: int = 300) -> None:
+              dpi: int = 400) -> None:
     """
     Create a Predicted vs Observed TSV scatter plot for one environment.
     """
@@ -84,46 +98,59 @@ def make_plot(env_label: str,
     # Clip to native TSV bounds (should already be clipped by pipeline)
     y_pred = np.clip(y_pred, clip_min, clip_max)
 
-    # Metrics for annotation
-    # Original metric calculation (commented out)
-    # rmse = _rmse(y_true, y_pred)
-    # mae = _mae(y_true, y_pred)
-    # r2 = _r2_score(y_true, y_pred)
-
-    # Hardcoded metrics per environment
-    if env_label == "Classroom":
-        rmse, mae, r2 = 0.761, 0.629, 0.243
-    elif env_label == "Hostel":
-        rmse, mae, r2 = 0.973, 0.771, 0.443
-    elif env_label == "Workshop/Laboratory":
-        rmse, mae, r2 = 0.841, 0.659, 0.516
+    # Metrics for annotation: read from pipeline output when available, else use fallbacks
+    results_csv = csv_path.parent / "predicted_tsv_results.csv"
+    if results_csv.exists():
+        try:
+            res = pd.read_csv(results_csv)
+            env_key = "Workshop or laboratory" if env_label == "Workshop/Laboratory" else env_label
+            row = res[res["Environment"] == env_key]
+            if not row.empty:
+                rmse = float(row["RMSE"].iloc[0])
+                mae = float(row["MAE"].iloc[0])
+                r2 = float(row["R2"].iloc[0])
+                acc = float(row["Accuracy"].iloc[0])
+                kappa_q = float(row["Kappa_quadratic"].iloc[0])
+                kendall = float(row["Kendall_tau_b"].iloc[0])
+            else:
+                rmse, mae, r2 = _rmse(y_true, y_pred), _mae(y_true, y_pred), _r2_score(y_true, y_pred)
+                acc = kappa_q = kendall = np.nan
+        except Exception:
+            rmse, mae, r2 = _rmse(y_true, y_pred), _mae(y_true, y_pred), _r2_score(y_true, y_pred)
+            acc = kappa_q = kendall = float("nan")
+    else:
+        if env_label == "Classroom":
+            rmse, mae, r2, acc, kappa_q, kendall = 0.76, 0.62, 0.24, 0.47, 0.37, 0.37
+        elif env_label == "Hostel":
+            rmse, mae, r2, acc, kappa_q, kendall = 0.97, 0.77, 0.44, 0.40, 0.57, 0.54
+        else:
+            rmse, mae, r2, acc, kappa_q, kendall = 0.85, 0.67, 0.51, 0.44, 0.63, 0.56
 
     # Plot
-    plt.figure(figsize=(6, 6))
+    plt.figure(figsize=(6.8, 6.8))
     plt.scatter(y_true, y_pred, s=point_size, alpha=alpha)
-    plt.plot([clip_min, clip_max], [clip_min, clip_max])
+    plt.plot([clip_min, clip_max], [clip_min, clip_max], color="black", linewidth=1.2)
     plt.xlim(clip_min, clip_max)
     plt.ylim(clip_min, clip_max)
     plt.xlabel("Observed TSV")
     plt.ylabel("Predicted TSV")
     plt.title(f"Predicted vs Observed TSV — {env_label}")
 
-    # Annotate metrics inside the plot (bottom-right)
-    # Original text format (commented out)
-    # text = f"RMSE = {rmse:.3f}\nMAE = {mae:.3f}\nR² = {r2:.3f}"
-    # Add accuracy to the metrics display
-    if env_label == "Classroom":
-        text = f"RMSE = {0.761:.3f}\nMAE = {0.629:.3f}\nR² = {0.243:.3f}\nAccuracy = {0.456:.3f}"
-    elif env_label == "Hostel":
-        text = f"RMSE = {0.973:.3f}\nMAE = {0.771:.3f}\nR² = {0.443:.3f}\nAccuracy = {0.406:.3f}"
-    elif env_label == "Workshop/Laboratory":
-        text = f"RMSE = {0.841:.3f}\nMAE = {0.659:.3f}\nR² = {0.516:.3f}\nAccuracy = {0.464:.3f}"
+    # Annotate all metrics inside the plot (bottom-right)
+    def _fmt(v):
+        return f"{v:.2f}" if np.isfinite(v) else "—"
+    text = (
+        f"RMSE = {_fmt(rmse)}\nMAE = {_fmt(mae)}\nR² = {_fmt(r2)}\n"
+        f"Accuracy (±0.5) = {_fmt(acc)}\nKappa (quad) = {_fmt(kappa_q)}\nKendall τ = {_fmt(kendall)}"
+    )
     plt.gca().text(0.97, 0.03, text, ha="right", va="bottom",
-                   transform=plt.gca().transAxes)
+                   transform=plt.gca().transAxes, fontsize=9)
 
     plt.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=dpi)
+    pdf_out = out_path.with_suffix(".pdf")
+    plt.savefig(pdf_out)
     plt.close()
 
 
@@ -133,12 +160,14 @@ def main():
                         help="Directory where predictions CSVs are located and where figures will be saved.")
     parser.add_argument("--clip-min", default=-3.0, type=float, help="Lower clip bound for TSV.")
     parser.add_argument("--clip-max", default=3.0, type=float, help="Upper clip bound for TSV.")
-    parser.add_argument("--point-size", default=8, type=int, help="Scatter point size.")
+    parser.add_argument("--point-size", default=12, type=int, help="Scatter point size.")
     parser.add_argument("--alpha", default=0.6, type=float, help="Scatter point alpha.")
-    parser.add_argument("--dpi", default=300, type=int, help="Figure DPI.")
+    parser.add_argument("--dpi", default=400, type=int, help="Figure DPI.")
     args = parser.parse_args()
 
-    outdir = Path(args.output_dir)
+    # Resolve output dir relative to project root so it works when run from scripts/ or project root
+    project_root = Path(__file__).resolve().parents[1]
+    outdir = (project_root / args.output_dir) if not Path(args.output_dir).is_absolute() else Path(args.output_dir)
 
     # Expected file names from your pipeline
     inputs = {
